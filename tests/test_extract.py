@@ -7,7 +7,7 @@ import docx
 import pytest
 
 from read.chunk import build_chunks
-from read.extract import Unsupported, extract, sniff
+from read.extract import Line, Unsupported, extract, layout_text, sniff
 
 
 def make_docx() -> bytes:
@@ -82,17 +82,87 @@ def test_docx_headings_tables_order():
     assert [s["section_path"] for s in sections] == ["Recommendation 1", "Recommendation 2"]
 
 
-class FakePage:
-    def __init__(self, text):
-        self.text = text
+def L(text, top, size=12.0, bold=False, x0=54.0):
+    """A synthetic PDF line; consecutive body lines are 12pt tall with a 6pt gap."""
+    return Line(text=text, top=top, bottom=top + size, x0=x0, size=size, bold=bold)
 
-    def extract_text(self):
-        return self.text
+
+def body_page(top_text, lines_text, start=100.0):
+    """A 792pt page with a running header, body lines, and a page-number footer."""
+    lines = [L("Report Title Running Header", 20, size=6)]
+    lines += [L(t, start + 18 * k) for k, t in enumerate(lines_text)]
+    return (792.0, lines + [L(top_text, 760, size=8)])
+
+
+def test_layout_paragraphs_headings_and_running_lines():
+    page1 = body_page(
+        "Page 1 of 3",
+        ["first line of para one", "second line of para one."],
+    )
+    page1[1].insert(1, L("Recommendation 1", 70, size=16))
+    page1[1].insert(4, L("Para two starts after a gap.", 160))
+    page2 = body_page("Page 2 of 3", ["Bold Heading Line", "Body text under it."])
+    page2[1][1].bold = True
+    page3 = body_page("Page 3 of 3", ["Closing words."])
+    text, page_starts, headings = layout_text([page1, page2, page3])
+    assert text.split("\n\n") == [
+        "Recommendation 1",
+        "first line of para one\nsecond line of para one.",
+        "Para two starts after a gap.",
+        "Bold Heading Line",
+        "Body text under it.",
+        "Closing words.",
+    ]
+    assert headings == {"Recommendation 1", "Bold Heading Line"}
+    assert [text[o:].split("\n")[0] for o in page_starts] == [
+        "Recommendation 1",
+        "Bold Heading Line",
+        "Closing words.",
+    ]
+
+
+def test_layout_keeps_sentence_cut_by_page_break_together():
+    page1 = (792.0, [L("This sentence runs onto", 700)])
+    page2 = (792.0, [L("the next page.", 100), L("New paragraph here.", 140)])
+    text, page_starts, _ = layout_text([page1, page2])
+    assert text.split("\n\n") == ["This sentence runs onto\nthe next page.", "New paragraph here."]
+    assert text[page_starts[1] :].startswith("the next page.")
+    _, passages = build_chunks("w", "v", text, page_starts=page_starts, target=3)
+    assert (passages[0]["page"], passages[0]["page_end"]) == (1, 2)
+
+
+def test_layout_wrapped_heading_is_one_heading():
+    body = [
+        L("Body text that is long enough to set the body font size.", 130 + 18 * k)
+        for k in range(2)
+    ]
+    page = (792.0, [L("A Long Title That", 60, size=24), L("Wraps", 86, size=24), *body[:1]])
+    text, _, headings = layout_text([page])
+    assert headings == {"A Long Title That Wraps"}
+    assert text.split("\n\n") == ["A Long Title That Wraps", body[0].text]
+
+
+def test_layout_sentence_like_bold_line_is_not_heading():
+    page = (792.0, [L("This bold line ends like a sentence.", 100, bold=True), L("Body.", 140)])
+    _, _, headings = layout_text([page])
+    assert headings == set()
+
+
+class FakePdfPage:
+    def __init__(self, lines, height=792.0):
+        self.lines, self.height = lines, height
+
+    def extract_text_lines(self, return_chars=True, strip=True):
+        out = []
+        for text, top in self.lines:
+            chars = [{"text": c, "size": 12.0, "fontname": "ABCDEF+Serif-Regular"} for c in text]
+            out.append({"text": text, "top": top, "bottom": top + 12, "x0": 54.0, "chars": chars})
+        return out
 
 
 class FakePdf:
     def __init__(self, pages):
-        self.pages = [FakePage(t) for t in pages]
+        self.pages = [FakePdfPage(p) for p in pages]
 
     def __enter__(self):
         return self
@@ -107,17 +177,18 @@ def fake_pdfplumber(monkeypatch, pages):
 
 
 def test_pdf_page_offsets(monkeypatch):
-    p1, p2 = "A" * 300 + "\r\nmore", "B" * 300
+    p1 = [("A" * 300 + ".", 100), ("more.\r", 140)]
+    p2 = [("B" * 300 + ".", 100)]
     fake_pdfplumber(monkeypatch, [p1, p2])
     ex = extract(b"%PDF-1.7")
     assert ex.page_starts[0] == 0
     assert ex.text[ex.page_starts[1] :].startswith("B")
     assert "\r" not in ex.text
     _, passages = build_chunks("w", "v", ex.text, page_starts=ex.page_starts, target=1)
-    assert [p["page"] for p in passages] == [1, 2]
+    assert [p["page"] for p in passages] == [1, 1, 2]
 
 
 def test_scanned_pdf_rejected(monkeypatch):
-    fake_pdfplumber(monkeypatch, ["", "  ", None])
+    fake_pdfplumber(monkeypatch, [[], [("  ", 100)], [("p. 3", 760)]])
     with pytest.raises(Unsupported, match="Textract"):
         extract(b"%PDF-1.7")
