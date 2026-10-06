@@ -24,3 +24,4 @@ Implementation choices the design doc doesn't cover, one line each with the reas
 | D16 | 2026-10-06 | proposed | `cite_label()` raises if the section's `work_id` doesn't match the work passed in | A mislabeled citation is worse than an error |
 | D17 | 2026-10-06 | proposed | Line length 100; ruff rules E, F, I, UP, B; pytest `pythonpath = src` | Standard defaults; no `pip install -e` needed |
 | D18 | 2026-10-06 | proposed | `.gitattributes` forces LF line endings in the repo | Canonical text and test fixtures must use LF only; this machine has `core.autocrlf` on |
+| D19 | 2026-10-06 | approved | Answer model is Amazon Nova Pro (`amazon.nova-pro-v1:0`, on-demand in us-east-1), set via `ANSWER_MODEL_ID` | Project requirement from John: must use an AWS (Amazon-made) model. Nova keeps `temperature=0` and the forced `record_answer` tool from the design; Nova Premier is the fallback if golden-set quality falls short |

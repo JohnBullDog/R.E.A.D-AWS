@@ -126,6 +126,8 @@ Create this structure as you go; don't scaffold empty files ahead of need.
 - Embeddings: `amazon.titan-embed-text-v2:0`, `dimensions=1024`, `normalize=True`.
 - Answer model: Bedrock Converse API, `temperature=0`, forced tool `record_answer`.
   The model ID comes from the env var `ANSWER_MODEL_ID`. Never hard-code a model ID.
+  **Requirement: the answer model must be an Amazon (Nova) model.** Currently Nova Pro
+  (`amazon.nova-pro-v1:0`); see `docs/decisions.md` D19.
 - Use "answer", not "summary", in names: `cited_answer()`, `ANSWER_MODEL_ID`, `/answer`.
   The design doc still has a few old names (`cited_summary`, `SUMMARY_MODEL_ID`); use the new ones.
 - Config comes from env vars set in `template.yaml`; no secrets in code. No API keys are needed;
