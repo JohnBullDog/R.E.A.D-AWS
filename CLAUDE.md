@@ -52,12 +52,13 @@ Build now:
 - DynamoDB `works` and `sections` tables
 - `/search` and `/answer` Lambdas behind API Gateway (HTTP API) with throttling
 - Authority/recency ranking, evidence-strength capping, citation labels from metadata
+- Reranking with Amazon Rerank 1.0 (`amazon.rerank-v1:0`) in **us-west-2** (not offered in
+  us-east-1); the only AWS action allowed outside us-east-1 (decisions D31)
 - One static HTML page: excerpts first, then the answer
 - Golden-question evaluation script
 
 Deferred until Q&A works end to end (don't build unless asked): Step Functions, SQS,
-embedding cache, Textract, DOC conversion via LibreOffice, rerank model (optional add in
-week 4), WAF, response cache, Bedrock evaluation jobs, HTML/EPUB extractors.
+embedding cache, Textract, DOC conversion via LibreOffice, WAF, response cache, Bedrock evaluation jobs, HTML/EPUB extractors.
 Out of scope entirely: user authentication and accounts, production deployment.
 
 ## Architecture
@@ -149,7 +150,7 @@ python scripts/eval.py eval/golden.jsonl
 
 ## AWS rules
 
-- Region: `us-east-1` unless John says otherwise. Use the AWS profile `read-poc`.
+- Region: `us-east-1`, except reranking in `us-west-2` (D31). Use the AWS profile `read-poc`.
 - **Spend cap: nothing that would take the AWS bill over $10 in a calendar month without John
   explicitly approving that cost.** State the estimated cost (hourly and monthly) before asking.
 - **Ask before** any command that creates billable resources, deletes anything, changes IAM,

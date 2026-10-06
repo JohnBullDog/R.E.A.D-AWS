@@ -13,6 +13,8 @@ from read.chunk import sha
 log = logging.getLogger(__name__)
 
 CANDIDATES = 40
+TOP_N = 8  # sections kept after reranking
+MIN_SCORE = 0.3  # rerank relevance cut-off; starting value, tune on the golden set
 MAX_WORDS = 9000  # evidence budget; whole sections are dropped, never truncated
 QUERY_MAX_CHARS = 500
 
@@ -46,6 +48,43 @@ def hybrid_query(
             }
         },
     }
+
+
+def rerank(
+    q: str,
+    passages: list[dict],
+    client,
+    model_arn: str,
+    n: int = TOP_N,
+    min_score: float = MIN_SCORE,
+) -> list[tuple[dict, float]]:
+    """Re-score candidates with the Bedrock Rerank API; keep the top n at or above min_score.
+
+    client is a boto3 bedrock-agent-runtime client in the reranker's region (RERANK_REGION);
+    model_arn comes from RERANK_MODEL_ARN. An empty result means "no relevant sections found".
+    """
+    if not passages:
+        return []
+    res = client.rerank(
+        queries=[{"type": "TEXT", "textQuery": {"text": q}}],
+        sources=[
+            {
+                "type": "INLINE",
+                "inlineDocumentSource": {"type": "TEXT", "textDocument": {"text": p["text"]}},
+            }
+            for p in passages
+        ],
+        rerankingConfiguration={
+            "type": "BEDROCK_RERANKING_MODEL",
+            "bedrockRerankingConfiguration": {
+                "numberOfResults": min(n, len(passages)),
+                "modelConfiguration": {"modelArn": model_arn},
+            },
+        },
+    )
+    ranked = [(passages[r["index"]], r["relevanceScore"]) for r in res["results"]]
+    ranked.sort(key=lambda pr: pr[1], reverse=True)
+    return [(p, s) for p, s in ranked if s >= min_score]
 
 
 def recency(pub_year: int, now_year: int, half_life: float = 10, floor: float = 0.75) -> float:

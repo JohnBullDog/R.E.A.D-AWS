@@ -23,6 +23,8 @@ Oct 6, 2026 · @John Patton
 > - **R6 Development search:** local OpenSearch in Docker for development (free). The AWS
 >   OpenSearch Serverless collection is created only for short, approved tests and demos, and
 >   deleted afterward. Spend cap: $10/month without explicit approval.
+> - **R8 Reranker:** Amazon Rerank 1.0 in us-west-2 (it isn't offered in us-east-1), per the
+>   AWS-model requirement. Cohere Rerank is not used.
 > - **R7 Declines:** an unanswerable result may have no sentences; the page shows a fixed
 >   decline message written in code.
 

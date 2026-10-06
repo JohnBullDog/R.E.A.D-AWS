@@ -138,3 +138,33 @@ def test_expired_work_is_inactive_and_excluded():
     assert is_active(works["expired"], date(2026, 10, 5))  # active until its expiry date
     evidence = [{"section": {"work_id": w}, "score": 1.0} for w in works]
     assert {e["section"]["work_id"] for e in adjust(evidence, works, TODAY)} == {"keep", "future"}
+
+
+class FakeRerank:
+    def __init__(self, scores):
+        self.scores, self.kwargs = scores, None
+
+    def rerank(self, **kwargs):
+        self.kwargs = kwargs
+        results = [{"index": i, "relevanceScore": s} for i, s in enumerate(self.scores)]
+        n = kwargs["rerankingConfiguration"]["bedrockRerankingConfiguration"]["numberOfResults"]
+        return {"results": sorted(results, key=lambda r: -r["relevanceScore"])[:n]}
+
+
+def test_rerank_orders_cuts_and_thresholds():
+    from read.retrieve import rerank
+
+    passages = [{"text": f"p{i}"} for i in range(5)]
+    fake = FakeRerank([0.1, 0.9, 0.5, 0.29, 0.3])
+    out = rerank("q", passages, fake, "arn:model", n=4, min_score=0.3)
+    assert [(p["text"], s) for p, s in out] == [("p1", 0.9), ("p2", 0.5), ("p4", 0.3)]
+    cfg = fake.kwargs["rerankingConfiguration"]["bedrockRerankingConfiguration"]
+    assert cfg == {"numberOfResults": 4, "modelConfiguration": {"modelArn": "arn:model"}}
+    assert fake.kwargs["queries"] == [{"type": "TEXT", "textQuery": {"text": "q"}}]
+
+
+def test_rerank_nothing_relevant_returns_empty():
+    from read.retrieve import rerank
+
+    assert rerank("q", [{"text": "a"}], FakeRerank([0.05]), "arn") == []
+    assert rerank("q", [], FakeRerank([]), "arn") == []
