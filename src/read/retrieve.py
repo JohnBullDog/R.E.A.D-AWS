@@ -1,0 +1,147 @@
+"""Hybrid search query, authority/recency ranking, section expansion, hash checks.
+
+See docs/design.md, "Retrieval" and "Ranking by authority and recency". Store access is
+passed in as functions so everything here is testable without AWS.
+"""
+
+import logging
+from collections.abc import Callable
+
+from read.chunk import sha
+
+log = logging.getLogger(__name__)
+
+CANDIDATES = 40
+MAX_WORDS = 9000  # evidence budget; whole sections are dropped, never truncated
+QUERY_MAX_CHARS = 500
+
+AUTHORITY = {  # starting weights; tune with the SME
+    "practice_guide": 1.00,  # IES/WWC practice guides
+    "systematic_review": 1.00,  # meta-analyses, NRP report
+    "state_standard": 1.00,  # MS CCRS for ELA, LBPA materials
+    "peer_reviewed_study": 0.95,
+    "federal_report": 0.90,  # NICHD, NAEP aggregates
+    "practitioner_resource": 0.80,  # NCIL, FCRR
+}
+
+
+def hybrid_query(
+    q: str, vector: list[float], active_versions: list[str], size: int = CANDIDATES
+) -> dict:
+    """OpenSearch body for BM25 + k-NN, both filtered to active versions.
+
+    Run with params={"search_pipeline": "hybrid-norm"} so scores are normalized and combined.
+    """
+    versions = {"terms": {"version_id": active_versions}}
+    return {
+        "size": size,
+        "_source": {"excludes": ["embedding"]},
+        "query": {
+            "hybrid": {
+                "queries": [
+                    {"bool": {"must": {"match": {"text": q}}, "filter": versions}},
+                    {"knn": {"embedding": {"vector": vector, "k": size, "filter": versions}}},
+                ]
+            }
+        },
+    }
+
+
+def recency(pub_year: int, now_year: int, half_life: float = 10, floor: float = 0.75) -> float:
+    """Gentle decay; the floor keeps foundational work like the NRP report competitive."""
+    return max(floor, 0.5 ** ((now_year - pub_year) / half_life))
+
+
+def adjust(evidence: list[dict], works: dict[str, dict], now_year: int) -> list[dict]:
+    """Drop superseded works and scale each score by authority and recency."""
+    kept = []
+    for e in evidence:
+        w = works.get(e["section"]["work_id"])
+        if w is None or w.get("superseded_by") or w.get("status", "ready") != "ready":
+            continue
+        weight = AUTHORITY[w["doc_type"]] * recency(int(w["pub_date"][:4]), now_year)
+        kept.append({**e, "score": e["score"] * weight})
+    return sorted(kept, key=lambda e: e["score"], reverse=True)
+
+
+def expand(
+    ranked: list[tuple[dict, float]],
+    get_section: Callable[[str], dict],
+    get_canonical: Callable[[str, str], str],
+    max_words: int = MAX_WORDS,
+) -> list[dict]:
+    """Group ranked passages by parent section; return whole sections in rank order.
+
+    A section that doesn't fit the word budget is dropped whole, never truncated.
+    """
+    evidence: list[dict] = []
+    by_section: dict[str, dict] = {}
+    dropped: set[str] = set()
+    words = 0
+    for p, score in ranked:
+        sid = p["section_id"]
+        if sid in by_section:
+            by_section[sid]["hits"].append((p["char_start"], p["char_end"]))
+            continue
+        if sid in dropped:
+            continue
+        sec = get_section(sid)
+        text = get_canonical(sec["work_id"], sec["version_id"])[
+            int(sec["char_start"]) : int(sec["char_end"])
+        ]
+        n = len(text.split())
+        if words + n > max_words:
+            dropped.add(sid)
+            continue
+        words += n
+        item = {
+            "section": sec,
+            "text": text,
+            "score": score,
+            "hits": [(p["char_start"], p["char_end"])],
+        }
+        by_section[sid] = item
+        evidence.append(item)
+    return evidence
+
+
+def verified(evidence: list[dict]) -> list[dict]:
+    """Keep only items whose text matches the stored hash; log every mismatch.
+
+    Run after all reordering, then number_cites(). An omitted item never reaches the
+    excerpts or the model.
+    """
+    ok = []
+    for e in evidence:
+        sec = e["section"]
+        if sha(e["text"]) != sec["text_sha256"]:
+            log.error(
+                "integrity_failure section_id=%s version_id=%s char_start=%s char_end=%s",
+                sec["section_id"],
+                sec["version_id"],
+                sec["char_start"],
+                sec["char_end"],
+            )
+            continue
+        ok.append(e)
+    return ok
+
+
+def number_cites(evidence: list[dict]) -> list[dict]:
+    """Assign S1, S2, ... in final display order."""
+    return [{**e, "cite_id": f"S{i}"} for i, e in enumerate(evidence, 1)]
+
+
+def excerpt(e: dict) -> dict:
+    """The response shape for one excerpt. Text comes only from the canonical file."""
+    sec = e["section"]
+    base = int(sec["char_start"])
+    return {
+        "cite_id": e["cite_id"],
+        "work_id": sec["work_id"],
+        "section_path": sec.get("section_path"),
+        "page": sec.get("page"),
+        "text": e["text"],
+        "highlights": sorted([int(s) - base, int(t) - base] for s, t in e["hits"]),
+        "ref": {k: sec[k] for k in ("section_id", "version_id", "char_start", "char_end")},
+    }

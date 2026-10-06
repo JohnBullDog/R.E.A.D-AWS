@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.aws-sam/
+samconfig.toml
+# large source files stay out of git; meta.json sidecars are committed
+corpus/*
+!corpus/*.meta.json
