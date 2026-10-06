@@ -151,20 +151,21 @@ class FakeRerank:
         return {"results": sorted(results, key=lambda r: -r["relevanceScore"])[:n]}
 
 
-def test_rerank_orders_cuts_and_thresholds():
+def test_rerank_keeps_top_n_in_order_regardless_of_low_scores():
     from read.retrieve import rerank
 
     passages = [{"text": f"p{i}"} for i in range(5)]
-    fake = FakeRerank([0.1, 0.9, 0.5, 0.29, 0.3])
-    out = rerank("q", passages, fake, "arn:model", n=4, min_score=0.3)
-    assert [(p["text"], s) for p, s in out] == [("p1", 0.9), ("p2", 0.5), ("p4", 0.3)]
+    fake = FakeRerank([0.002, 0.324, 0.0, 0.002, 0.001])
+    out = rerank("q", passages, fake, "arn:model", n=4)
+    assert [p["text"] for p, _ in out] == ["p1", "p0", "p3", "p4"]
     cfg = fake.kwargs["rerankingConfiguration"]["bedrockRerankingConfiguration"]
     assert cfg == {"numberOfResults": 4, "modelConfiguration": {"modelArn": "arn:model"}}
     assert fake.kwargs["queries"] == [{"type": "TEXT", "textQuery": {"text": "q"}}]
 
 
-def test_rerank_nothing_relevant_returns_empty():
+def test_rerank_nothing_relevant_when_best_score_is_below_floor():
     from read.retrieve import rerank
 
-    assert rerank("q", [{"text": "a"}], FakeRerank([0.05]), "arn") == []
+    assert rerank("q", [{"text": "a"}, {"text": "b"}], FakeRerank([0.0, 0.004]), "arn") == []
     assert rerank("q", [], FakeRerank([]), "arn") == []
+    assert len(rerank("q", [{"text": "a"}], FakeRerank([0.01]), "arn")) == 1

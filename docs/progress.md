@@ -2,6 +2,16 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-06 — Session 1f: Q13 rerank cut-off
+
+- Implemented D32 (keep top 8 by rerank order; "no relevant sections" when best score < 0.01).
+- Live re-run: 8 relevant sections kept (Overview, Rendering verbatim excerpts, Goals, Answer
+  with citations...); off-topic question still declined with no answer call.
+- Nova Pro copied an 8-word phrase on both attempts, so the validator blocked the answer
+  (error state shown). Rule 4 is working; answer quality needs prompt tuning (see
+  open-questions "To watch").
+- 71 unit tests pass.
+
 ## 2026-10-06 — Session 1e: reranker live (Amazon Rerank 1.0, us-west-2)
 
 **Done**

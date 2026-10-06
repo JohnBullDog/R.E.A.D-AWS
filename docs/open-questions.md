@@ -14,31 +14,19 @@ Answered questions move to `docs/decisions.md` (D-numbers in brackets).
 - Q10 design.md: update it; the proposal is ground truth for the final product [D28]
 - Q11 Development search: local Docker; John sets up the AWS test first [D29]
 - Q2 Reranker: in this build, Amazon Rerank 1.0 in us-west-2 [D31]
+- Q13 Rerank cut-off: order only, top 8, best-score floor 0.01 [D32]
 
 ## Open
-
-### Q13. Rerank cut-off for Amazon Rerank
-The design's 0.3 cut-off assumed a reranker whose scores spread out. Amazon Rerank 1.0's scores
-are nearly all-or-nothing. Live test on the design-doc test corpus:
-- "How does the system make sure an excerpt is the exact source text?": scores 0.324 (Overview),
-  0.002 (Rendering verbatim excerpts, the best section), 0.002, 0.002, 0.000... With 0.3, only
-  one section survives, so the answer was thin and flagged "limited".
-- "What is the best way to teach long division?" (off-topic): every score 0.000.
-
-The ranking order is good; the absolute numbers are not comparable to 0.3.
-
-Options:
-- **A (recommended):** use the reranker for order only and keep the top 8. Decide "no relevant
-  sections found" from the top score alone (start at 0.01; Addison's golden questions set it).
-- **B:** keep a per-section cut-off but lower it (e.g. 0.001) and tune later.
-- **C:** keep 0.3.
-
-Caveat: the test corpus is our own design doc, not reading research; real sources may score
-differently. The golden set (week 4) is the real test either way.
 
 ### Q12. The Hub/MDE proposal document
 D28 makes the proposal the ground truth for the final product, but it isn't in the repo.
 Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against it.
+
+## To watch (no decision yet)
+- Nova Pro copies source phrases: with 8 sections of evidence it copied an 8-word phrase on
+  both attempts, so the validator correctly blocked the answer (error state). Fix belongs
+  in golden-set tuning: e.g. state the 8-word rule in the prompt, or compare Nova Premier.
+  Any prompt change will be shown to John first.
 
 ## Needs John (not decisions)
 - Boundary policy `read-poc-boundary`: not needed until we deploy Lambdas (week 4); I'll walk
