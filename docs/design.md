@@ -2,6 +2,30 @@
 
 Oct 6, 2026 · @John Patton
 
+> **PoC revisions (2026-10-06).** This design is the working plan for the proof of concept.
+> The Hub/MDE proposal remains the ground truth for the final product. Changes made during
+> the PoC are listed here and logged with reasons in `docs/decisions.md`.
+>
+> - **R1 Answer model:** must be an Amazon model; Amazon Nova Pro (`amazon.nova-pro-v1:0`) via
+>   `ANSWER_MODEL_ID`, `temperature=0`, forced `record_answer` tool. Names use "answer", not
+>   "summary" (`cited_answer`, `ANSWER_MODEL_ID`).
+> - **R2 PDF extraction:** paragraphs and headings are rebuilt from page layout (line spacing,
+>   font size, bold); repeated running headers/footers and page numbers are dropped. Headings
+>   come from formatting, not fixed words, because source formatting varies.
+> - **R3 Sections:** text under a heading forms a section (split after 1,500 words; the
+>   continuation keeps the heading); text with no heading forms sections of at most
+>   5 paragraphs or 500 words.
+> - **R4 Citations:** a section spanning pages is cited as a range ("pp. 12–13").
+> - **R5 Expiration and versions:** each work may set an optional `expires_on` date; from that
+>   date it is excluded from search. Updates are re-uploads that become a new version, as in
+>   "Failure cases". Inactive works (not ready, superseded, expired) are filtered out before
+>   search, so they never use the evidence budget.
+> - **R6 Development search:** local OpenSearch in Docker for development (free). The AWS
+>   OpenSearch Serverless collection is created only for short, approved tests and demos, and
+>   deleted afterward. Spend cap: $10/month without explicit approval.
+> - **R7 Declines:** an unanswerable result may have no sentences; the page shows a fixed
+>   decline message written in code.
+
 ## Overview
 
 Decision: build R.E.A.D.'s Research-Grounded Q&A as a custom pipeline on Lambda, Bedrock, and OpenSearch. Teachers must be able to trust every citation, and only a pipeline we control end to end can guarantee that each supporting excerpt is the exact source text, never model output.
@@ -86,6 +110,7 @@ One row per source, holding processing state and the source tagging that drives 
 | `peer_reviewed` | true | Authority ranking |
 | `grade_bands`, `components` | K-3; phonics, fluency | Filtering by grade and reading component |
 | `superseded_by` | ID of the newer edition | Superseded sources drop out of answers |
+| `expires_on` (optional) | 2028-06-30 | From this date the source drops out of answers (PoC revision R5) |
 | `license`, `license_verified_by`, `license_verified_on` | US public domain; reviewer; review date | Ingestion gate: no verified license, no activation |
 | `source_key`, `source_version_id`, `canonical_key`, `active_version_id` |  | Processing and version pinning |
 | `status`, `passage_count`, `activated_at` | `ready` | State; latest `activated_at` is the "last updated" date |

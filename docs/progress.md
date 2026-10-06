@@ -2,6 +2,28 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-06 — Session 1d: John's answers to Q1–Q11 implemented
+
+**Done**
+- Q1/Q5: PDF paragraphs + headings rebuilt from layout (D20, D21).
+- Q3: optional `expires_on`; `is_active()` / `active_versions()` (D25).
+- Q4: sections without headings cap at 5 paragraphs / 500 words; headed continuations keep
+  their heading (D22). Q7: page ranges (D24).
+- Q11: local OpenSearch 2.19.1 in Docker (`docker-compose.yml`), `store.py`, `embed.py`,
+  `scripts/setup_opensearch.py --local`.
+- Spend cap ($10/month without explicit OK) added to CLAUDE.md and memory (D30).
+- design.md: "PoC revisions" R1–R7 + `expires_on` in the works table (D28).
+
+**Verified**
+- 69 unit tests pass; ruff clean.
+- Design-doc PDF through the new extractor: 237 paragraphs, 23 correct headings, 25 named
+  sections, page ranges right, running header and page numbers gone.
+- Local end-to-end: 39 passages embedded with Titan (about $0.0002) and indexed; hybrid query
+  through `hybrid-norm` returns the right sections first; the version filter returns 0 hits
+  for an inactive version; excerpts hash-check and get page-range labels.
+
+**Open**: Q2 (reranker vs. AWS-model rule), Q12 (proposal doc), source files, AWS test setup.
+
 ## 2026-10-06 — Session 1c: answer model live check (Nova Pro)
 
 **Done**
