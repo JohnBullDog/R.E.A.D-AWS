@@ -9,9 +9,19 @@ def cite_label(section: dict, work: dict) -> str:
     """e.g. "IES What Works Clearinghouse, 2016, p. 12"."""
     if section["work_id"] != work["work_id"]:
         raise ValueError(f"section {section['section_id']} is not from work {work['work_id']}")
-    where = f"p. {section['page']}" if section.get("page") else section.get("section_path") or ""
+    where = page_label(section) or section.get("section_path") or ""
     parts = [work["publisher"], work["pub_date"][:4], where]
     return ", ".join(p for p in parts if p)
+
+
+def page_label(section: dict) -> str:
+    """ "p. 12", or "pp. 12–13" when the section spans pages; "" when there are no pages."""
+    first, last = section.get("page"), section.get("page_end")
+    if not first:
+        return ""
+    if last and last != first:
+        return f"pp. {first}–{last}"
+    return f"p. {first}"
 
 
 def labels(evidence: list[dict], works: dict[str, dict]) -> dict[str, str]:

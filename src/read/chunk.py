@@ -10,13 +10,20 @@ import hashlib
 import re
 from collections.abc import Iterator
 
-HEADING = re.compile(r"(chapter|part|book|section)\s+\S+", re.I)
+# Weak fallback only: real heading signals come from the extractor (DOCX styles, PDF layout),
+# because source formatting varies and isn't under our control (open-questions Q5).
+HEADING = re.compile(
+    r"(chapter|part|book|section|recommendation|step|appendix|unit|module|lesson)\s+[\w.]+",
+    re.I,
+)
 PARAGRAPH = re.compile(r"[^\n](?:.|\n(?!\s*\n))*")
 SENTENCE_WORD = re.compile(r"[.!?][\"'”’)\]]*$")  # a word that ends a sentence
 WORD = re.compile(r"\S+")
 
 TARGET_WORDS = 250  # passage size
-MAX_SECTION_WORDS = 1500  # a section without headings closes after this many words
+MAX_SECTION_WORDS = 1500  # a headed section splits after this many words (continues heading)
+MAX_UNHEADED_WORDS = 500  # a run with no heading closes after this many words...
+MAX_UNHEADED_PARAS = 5  # ...or this many paragraphs, whichever comes first (Q4)
 MAX_PARAGRAPH_WORDS = 400  # longer paragraphs are split at sentence boundaries
 
 
@@ -80,6 +87,16 @@ def page_at(page_starts: list[int], offset: int) -> int | None:
     return bisect.bisect_right(page_starts, offset)
 
 
+def is_heading(para: str, headings: frozenset[str] | set[str]) -> bool:
+    if para in headings:
+        return True
+    return (
+        len(para) < 100
+        and not para.rstrip().endswith((".", ":", ";", ","))
+        and bool(HEADING.match(para))
+    )
+
+
 def build_chunks(
     work_id: str,
     ver: str,
@@ -88,16 +105,27 @@ def build_chunks(
     page_starts: list[int] | None = None,
     target: int = TARGET_WORDS,
     max_sec: int = MAX_SECTION_WORDS,
+    max_unheaded_words: int = MAX_UNHEADED_WORDS,
+    max_unheaded_paras: int = MAX_UNHEADED_PARAS,
 ) -> tuple[list[dict], list[dict]]:
-    """Return (sections, passages) for one canonical text. Passages never cross a section."""
+    """Return (sections, passages) for one canonical text. Passages never cross a section.
+
+    A section starts at each heading. Under a heading, a section splits after max_sec words
+    and the continuation keeps the heading as its section_path. Text with no heading forms
+    sections of at most max_unheaded_paras paragraphs or max_unheaded_words words.
+    """
     pages = page_starts or []
     sections: list[dict] = []
     passages: list[dict] = []
-    sec: list | None = None  # [start, end, words, heading]
+    sec: dict | None = None  # start, end, words, paras, path
     psg: list | None = None  # [start, end, words]
+    path: str | None = None  # heading in force for the current part of the text
 
     def section_id() -> str:
         return f"{work_id}:{ver}:s{len(sections):04d}"
+
+    def location(s: int, e: int) -> dict:
+        return {"page": page_at(pages, s), "page_end": page_at(pages, max(s, e - 1))}
 
     def close_passage() -> None:
         nonlocal psg
@@ -113,8 +141,8 @@ def build_chunks(
                     "char_end": e,
                     "text": text[s:e],
                     "text_sha256": sha(text[s:e]),
-                    "section_path": sec[3] if sec else None,
-                    "page": page_at(pages, s),
+                    "section_path": sec["path"] if sec else None,
+                    **location(s, e),
                 }
             )
             psg = None
@@ -123,7 +151,7 @@ def build_chunks(
         nonlocal sec
         close_passage()
         if sec:
-            s, e = sec[0], sec[1]
+            s, e = sec["start"], sec["end"]
             sections.append(
                 {
                     "section_id": section_id(),
@@ -131,8 +159,8 @@ def build_chunks(
                     "version_id": ver,
                     "char_start": s,
                     "char_end": e,
-                    "section_path": sec[3],
-                    "page": page_at(pages, s),
+                    "section_path": sec["path"],
+                    **location(s, e),
                     "text_sha256": sha(text[s:e]),
                 }
             )
@@ -141,12 +169,21 @@ def build_chunks(
     for s, e in units(text):
         para = text[s:e]
         words = len(para.split())
-        is_heading = para in headings or (len(para) < 100 and bool(HEADING.match(para)))
-        if is_heading or (sec and sec[2] + words > max_sec):
+        heading = is_heading(para, headings)
+        if heading:
             close_section()
+            path = para
+        elif sec:
+            full = (
+                sec["words"] + words > max_sec
+                if sec["path"] is not None
+                else sec["paras"] >= max_unheaded_paras or sec["words"] + words > max_unheaded_words
+            )
+            if full:
+                close_section()
         if not sec:
-            sec = [s, e, 0, para if is_heading else None]
-        sec[1], sec[2] = e, sec[2] + words
+            sec = {"start": s, "end": e, "words": 0, "paras": 0, "path": path}
+        sec["end"], sec["words"], sec["paras"] = e, sec["words"] + words, sec["paras"] + 1
         if psg and psg[2] + words > target:
             close_passage()
         if not psg:

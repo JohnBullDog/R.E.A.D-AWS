@@ -39,3 +39,8 @@ def test_last_updated_uses_ready_works_only():
     }
     assert last_updated(works) == "2026-10-05T00:00:00Z"
     assert last_updated({}) is None
+
+
+def test_label_page_range():
+    sec = {"section_id": "wwc:v:s0", "work_id": "wwc", "page": 12, "page_end": 13}
+    assert cite_label(sec, WORK) == "IES What Works Clearinghouse, 2016, pp. 12–13"

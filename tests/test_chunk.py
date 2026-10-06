@@ -26,14 +26,38 @@ def test_unicode_offsets_reproduce_text():
     assert sections[0]["section_path"] == "Chapter 1"
 
 
-def test_no_headings_uses_word_cap_for_sections():
-    para = " ".join(["word"] * 100) + "."
-    text = "\n\n".join([para] * 40)  # 4000 words, no headings
+def test_no_headings_caps_sections_at_500_words():
+    para = " ".join(["word"] * 101) + "."  # 101 words
+    text = "\n\n".join([para] * 40)
     sections, passages = build_chunks("w", "v1", text)
     check_offsets(text, sections, passages)
-    assert len(sections) == 3  # 1500 + 1500 + 1000
+    assert len(sections) == 10  # 4 paragraphs each; a 5th would pass 500 words
     assert all(s["section_path"] is None for s in sections)
     assert all(len(p["text"].split()) <= 250 for p in passages)
+
+
+def test_no_headings_caps_sections_at_5_paragraphs():
+    text = "\n\n".join(f"Short paragraph {i}." for i in range(12))
+    sections, _ = build_chunks("w", "v1", text)
+    sizes = [text[s["char_start"] : s["char_end"]].count("\n\n") + 1 for s in sections]
+    assert sizes == [5, 5, 2]
+
+
+def test_long_headed_section_continues_under_same_heading():
+    body = "\n\n".join([" ".join(["word"] * 300) + "."] * 6)  # 1806 words
+    text = "Recommendation 1\n\n" + body + "\n\nRecommendation 2\n\nEnd."
+    sections, _ = build_chunks("w", "v1", text)
+    assert [s["section_path"] for s in sections] == [
+        "Recommendation 1",
+        "Recommendation 1",
+        "Recommendation 2",
+    ]
+
+
+def test_sentence_ending_line_is_not_a_heading():
+    text = "Step 2 is to blend sounds.\n\nMore text."
+    sections, _ = build_chunks("w", "v1", text)
+    assert sections[0]["section_path"] is None
 
 
 def test_very_long_paragraph_is_split_at_sentences():
@@ -93,6 +117,8 @@ def test_pages_from_page_starts():
     sections, passages = build_chunks("w", "v1", text, page_starts=[0, len(page1)], target=2)
     assert [p["page"] for p in passages] == [1, 2]
     assert page_at([], 5) is None
+    sections, _ = build_chunks("w", "v1", text, page_starts=[0, len(page1)])
+    assert (sections[0]["page"], sections[0]["page_end"]) == (1, 2)
 
 
 def test_empty_text():
