@@ -23,5 +23,4 @@ Implementation choices the design doc doesn't cover, one line each with the reas
 | D15 | 2026-10-06 | proposed | `adjust()` also drops works whose `status` isn't `ready` | Belt-and-braces with the active-version filter |
 | D16 | 2026-10-06 | proposed | `cite_label()` raises if the section's `work_id` doesn't match the work passed in | A mislabeled citation is worse than an error |
 | D17 | 2026-10-06 | proposed | Line length 100; ruff rules E, F, I, UP, B; pytest `pythonpath = src` | Standard defaults; no `pip install -e` needed |
-| D18 | 2026-10-06 | proposed | `.gitattributes` forces LF line endings in the repo | Canonical text and test fixtures must use `
-`; this machine has `core.autocrlf` on |
+| D18 | 2026-10-06 | proposed | `.gitattributes` forces LF line endings in the repo | Canonical text and test fixtures must use LF only; this machine has `core.autocrlf` on |
