@@ -1,7 +1,20 @@
 import logging
+from datetime import date
 
 from read.chunk import build_chunks, sha
-from read.retrieve import adjust, excerpt, expand, hybrid_query, number_cites, recency, verified
+from read.retrieve import (
+    active_versions,
+    adjust,
+    excerpt,
+    expand,
+    hybrid_query,
+    is_active,
+    number_cites,
+    recency,
+    verified,
+)
+
+TODAY = date(2026, 10, 6)
 
 CANON = (
     "Chapter 1\n\n"
@@ -36,20 +49,20 @@ def test_superseded_and_inactive_works_excluded():
         "c": {"doc_type": "practice_guide", "pub_date": "2020-01", "status": "ingesting"},
     }
     evidence = [{"section": {"work_id": w}, "score": 1.0} for w in ("b", "a", "c")]
-    kept = adjust(evidence, works, 2026)
+    kept = adjust(evidence, works, TODAY)
     assert [e["section"]["work_id"] for e in kept] == ["a"]
 
 
 def test_authority_reorders():
     works = {
-        "p": {"doc_type": "practitioner_resource", "pub_date": "2026-01"},
-        "g": {"doc_type": "practice_guide", "pub_date": "2026-01"},
+        "p": {"doc_type": "practitioner_resource", "pub_date": "2026-01", "status": "ready"},
+        "g": {"doc_type": "practice_guide", "pub_date": "2026-01", "status": "ready"},
     }
     evidence = [
         {"section": {"work_id": "p"}, "score": 0.9},
         {"section": {"work_id": "g"}, "score": 0.85},
     ]
-    assert [e["section"]["work_id"] for e in adjust(evidence, works, 2026)] == ["g", "p"]
+    assert [e["section"]["work_id"] for e in adjust(evidence, works, TODAY)] == ["g", "p"]
 
 
 def test_expand_merges_hits_and_slices_whole_sections():
@@ -110,3 +123,18 @@ def test_hybrid_query_filters_both_branches_to_active_versions():
     assert bm25["bool"]["filter"] == {"terms": {"version_id": ["v1"]}}
     assert knn["knn"]["embedding"]["filter"] == {"terms": {"version_id": ["v1"]}}
     assert body["_source"] == {"excludes": ["embedding"]}
+
+
+def test_expired_work_is_inactive_and_excluded():
+    ready = {"status": "ready", "doc_type": "practice_guide", "pub_date": "2020-01"}
+    works = {
+        "keep": {**ready, "active_version_id": "v1"},
+        "future": {**ready, "active_version_id": "v2", "expires_on": "2027-01-01"},
+        "expired": {**ready, "active_version_id": "v3", "expires_on": "2026-10-06"},
+        "old": {**ready, "active_version_id": "v4", "superseded_by": "keep"},
+        "ingesting": {**ready, "status": "ingesting", "active_version_id": "v5"},
+    }
+    assert active_versions(works, TODAY) == ["v1", "v2"]
+    assert is_active(works["expired"], date(2026, 10, 5))  # active until its expiry date
+    evidence = [{"section": {"work_id": w}, "score": 1.0} for w in works]
+    assert {e["section"]["work_id"] for e in adjust(evidence, works, TODAY)} == {"keep", "future"}

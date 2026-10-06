@@ -6,6 +6,7 @@ passed in as functions so everything here is testable without AWS.
 
 import logging
 from collections.abc import Callable
+from datetime import date
 
 from read.chunk import sha
 
@@ -52,14 +53,36 @@ def recency(pub_year: int, now_year: int, half_life: float = 10, floor: float = 
     return max(floor, 0.5 ** ((now_year - pub_year) / half_life))
 
 
-def adjust(evidence: list[dict], works: dict[str, dict], now_year: int) -> list[dict]:
-    """Drop superseded works and scale each score by authority and recency."""
+def is_active(work: dict, today: date) -> bool:
+    """A work is searchable only if ready, not superseded, and not past its expiration date.
+
+    expires_on is optional (YYYY-MM-DD, from meta.json); on that date the work stops being
+    used. Updating a document is a re-upload: the new version ingests alongside the old one
+    and replaces it only after verification (see docs/design.md, "Failure cases").
+    """
+    if work.get("status") != "ready" or work.get("superseded_by"):
+        return False
+    expires = work.get("expires_on")
+    return not expires or date.fromisoformat(expires) > today
+
+
+def active_versions(works: dict[str, dict], today: date) -> list[str]:
+    """version_ids the search filter allows; inactive works never reach the index query."""
+    return sorted(
+        w["active_version_id"]
+        for w in works.values()
+        if is_active(w, today) and w.get("active_version_id")
+    )
+
+
+def adjust(evidence: list[dict], works: dict[str, dict], today: date) -> list[dict]:
+    """Drop inactive works and scale each score by authority and recency."""
     kept = []
     for e in evidence:
         w = works.get(e["section"]["work_id"])
-        if w is None or w.get("superseded_by") or w.get("status", "ready") != "ready":
+        if w is None or not is_active(w, today):
             continue
-        weight = AUTHORITY[w["doc_type"]] * recency(int(w["pub_date"][:4]), now_year)
+        weight = AUTHORITY[w["doc_type"]] * recency(int(w["pub_date"][:4]), today.year)
         kept.append({**e, "score": e["score"] * weight})
     return sorted(kept, key=lambda e: e["score"], reverse=True)
 
