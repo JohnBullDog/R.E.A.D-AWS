@@ -150,6 +150,8 @@ python scripts/eval.py eval/golden.jsonl
 ## AWS rules
 
 - Region: `us-east-1` unless John says otherwise. Use the AWS profile `read-poc`.
+- **Spend cap: nothing that would take the AWS bill over $10 in a calendar month without John
+  explicitly approving that cost.** State the estimated cost (hourly and monthly) before asking.
 - **Ask before** any command that creates billable resources, deletes anything, changes IAM,
   or runs `sam deploy`. Show what will change first.
 - Never use or request root/admin credentials. Keep IAM least-privilege: Lambdas get only
