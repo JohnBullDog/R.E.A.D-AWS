@@ -2,6 +2,23 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-06 — Session 1e: reranker live (Amazon Rerank 1.0, us-west-2)
+
+**Done**
+- `rerank()` in retrieve.py (top 8 of 40, cut-off parameter); IAM `read-poc-developer`
+  updated by John: us-west-2 allows only `bedrock:Rerank` + `InvokeModel` on
+  `amazon.rerank-v1:0`; Titan/Nova pinned to us-east-1. The boundary policy update is deferred
+  (it doesn't exist yet and isn't needed until Lambdas deploy).
+
+**Verified (live, cost about 2 cents)**
+- Amazon Rerank 1.0 is ACTIVE in us-west-2. Region lock: us-west-2 OpenSearch/S3/Titan denied,
+  eu-west-1 denied, us-east-1 unaffected.
+- Full chain on the design-doc test corpus: local hybrid search -> rerank -> sections -> hash
+  check -> Nova Pro answer with valid citation (search+rerank about 1 s warm, 3-5 s cold).
+  An off-topic question returns "No relevant sections found" with no answer call.
+- Finding: Amazon Rerank scores are nearly binary; the 0.3 cut-off drops good sections (Q13).
+- 71 unit tests pass.
+
 ## 2026-10-06 — Session 1d: John's answers to Q1–Q11 implemented
 
 **Done**
