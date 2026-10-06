@@ -100,8 +100,8 @@ def validate(out: dict, evidence: list[dict]) -> list[str]:
     sentences = out.get("sentences")
     if not isinstance(sentences, list):
         return problems + ["sentences is not a list"]
-    if not sentences:
-        problems.append("no sentences")
+    if not sentences and out.get("answerable") is not False:
+        problems.append("no sentences")  # a decline may have none; the UI shows a fixed message
     allowed = {e["cite_id"]: ngrams(e["text"]) for e in evidence}
     for i, s in enumerate(sentences):
         if not (

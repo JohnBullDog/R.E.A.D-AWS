@@ -2,6 +2,25 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-06 — Session 1c: answer model live check (Nova Pro)
+
+**Done**
+- John set the requirement: the answer model must be an Amazon model. Nova Pro chosen (D19);
+  `read-poc-developer` updated by John to allow `amazon.nova-pro-v1:0`.
+- Live smoke test with `ClaudeAgent` (synthetic test passages, not corpus text):
+  Titan V2 embedding returned 1024 dims, norm 1.0; Nova Pro accepted `temperature=0` + forced
+  `record_answer` tool, ~1 s per call. Answerable question passed `validate()`; unanswerable
+  question was correctly declined.
+- Bug found and fixed: `validate()` rejected a decline with zero sentences, which would have
+  turned every correct decline into the error state. Now allowed when `answerable` is false
+  (D13 updated). 55 tests pass.
+
+**Observed, worth watching**
+- Nova's paraphrase stayed close to the source (e.g. "hear, separate, and combine sounds in
+  spoken words" vs. "...combine the sounds in spoken words"). It passed the 8-gram rule only
+  because one word differed. The rule is working as specified, but Addison may want to judge
+  whether near-copies are acceptable (golden-set review).
+
 ## 2026-10-06 — Session 1b: AWS credential for the agent
 
 **Done**

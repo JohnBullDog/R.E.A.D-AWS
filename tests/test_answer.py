@@ -163,3 +163,13 @@ def test_call_model_without_tool_use_raises(monkeypatch):
     monkeypatch.setenv("ANSWER_MODEL_ID", "m")
     with pytest.raises(ValueError):
         call_model("q", EVIDENCE, FakeBedrock([{"text": "free text"}]))
+
+
+def test_decline_with_no_sentences_is_valid():
+    out = good(answerable=False, evidence_strength="limited", sentences=[])
+    assert validate(out, EVIDENCE) == []
+
+
+def test_decline_still_rejects_bad_cites():
+    out = good(answerable=False, sentences=[{"text": "Not covered.", "cites": ["S9"]}])
+    assert validate(out, EVIDENCE) == ["sentence 0 cites unknown 'S9'"]
