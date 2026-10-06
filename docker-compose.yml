@@ -1,0 +1,20 @@
+# Local OpenSearch for development (free). Reachable only from this PC (127.0.0.1).
+# Security is disabled: never expose this port or put real credentials in it.
+#   docker compose up -d        start
+#   docker compose down         stop (data kept in the "opensearch-data" volume)
+#   docker compose down -v      stop and delete the data
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.19.1
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+
+volumes:
+  opensearch-data:
