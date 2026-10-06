@@ -2,6 +2,28 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-06 — Session 1b: AWS credential for the agent
+
+**Done**
+- IAM policies `read-poc-boundary` and `read-poc-developer` written to `infra/iam/` (account ID
+  filled in; not committed yet, waiting on John) and created by John in the console.
+- IAM user `ClaudeAgent` (account ACCOUNT_ID) with `read-poc-developer`; CLI profile
+  `read-poc` (us-east-1) configured from John's downloaded key CSV. The secret was never
+  printed or sent to chat.
+
+**Verified (read-only)**
+- `sts get-caller-identity` returns `user/ClaudeAgent`.
+- Allowed: Bedrock list models (21 Amazon models), Titan Text Embeddings V2 `ACTIVE` in
+  us-east-1, OpenSearch Serverless list collections (none exist, so nothing is billing yet).
+- Denied as intended: Bedrock in us-west-2 (region lock), S3 list-all-buckets, IAM list-users,
+  EC2 describe. So no broader policy is attached to the user.
+
+**Next**
+- Pick the answer model (`ANSWER_MODEL_ID`), enable model access, and update the
+  `ANSWER_MODEL` line in `read-poc-developer`.
+- Monthly AWS Budget alert (console, admin).
+- Answer Q1–Q5 in `docs/open-questions.md`.
+
 ## 2026-10-06 — Session 1: repo bootstrap and core library (week 2)
 
 **Done**
