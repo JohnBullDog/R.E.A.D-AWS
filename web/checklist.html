@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R.E.A.D. Checklist</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <span class="brand">R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></span>
+  <nav><a href="/">Test</a><a href="/review">Review</a><a href="/sources">Sources</a><a href="/checklist" class="on">Checklist</a></nav>
+  <span class="devtag">local dev</span>
+</header>
+<main>
+  <h1>Review checklist</h1>
+  <p class="sub">The questions the Review page asks of every piece of material. Each has a grade band (questions outside the material's grade are skipped) and a search phrase used to find the research.</p>
+  <div class="disclaimer"><strong id="status"></strong> <span id="note"></span></div>
+
+  <div id="rows"></div>
+  <div class="row" style="margin-top:12px">
+    <button id="add" class="ghost">Add question</button>
+    <button id="save">Save checklist</button>
+    <span id="msg" class="notice"></span>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+let data = null;
+
+function field(label, value, key, row, wide) {
+  const l = el("label", null, label);
+  const input = wide ? el("textarea") : el("input");
+  if (wide) input.rows = 2; else input.type = "text";
+  input.value = value || "";
+  input.addEventListener("input", () => { row[key] = input.value; });
+  l.append(input);
+  return l;
+}
+
+function render() {
+  $("status").textContent = (data.status || "") + ".";
+  $("note").textContent = data.note || "";
+  $("rows").replaceChildren(...data.criteria.map((c, i) => {
+    const card = el("div", "panel");
+    const g = el("div", "grid");
+    g.append(field("ID", c.criterion_id, "criterion_id", c), field("Component", c.component, "component", c),
+      field("Grade band", c.grade_band, "grade_band", c));
+    const del = el("button", "danger small", "Remove");
+    del.type = "button";
+    del.addEventListener("click", () => { data.criteria.splice(i, 1); render(); });
+    card.append(g, field("Question", c.question, "question", c, true), field("Search phrase for the research", c.search_query, "search_query", c, true), del);
+    return card;
+  }));
+}
+
+$("add").addEventListener("click", () => {
+  data.criteria.push({criterion_id: "new-question-" + (data.criteria.length + 1), component: "", grade_band: "K-5", question: "", search_query: ""});
+  render();
+});
+
+$("save").addEventListener("click", async () => {
+  $("msg").textContent = "";
+  try {
+    const r = await fetch("/api/checklist", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)});
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || r.status);
+    $("msg").textContent = "Saved.";
+  } catch (e) { $("msg").append(el("span", "err", e.message)); }
+});
+
+fetch("/api/checklist").then((r) => r.json()).then((d) => { data = d; render(); });
+</script>
+</body>
+</html>

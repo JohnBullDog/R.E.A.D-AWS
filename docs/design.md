@@ -34,6 +34,9 @@ Oct 6, 2026 · @John Patton
 > - **R11 Verified quotes:** wording an answer reuses from a cited section (8+ words) is shown as
 >   a quotation sliced from the canonical text, max 40 words; reuse from an uncited section fails
 >   validation. Replaces "no copied 8-word phrase".
+> - **R12 Material review (Phase 2, early):** upload or paste sample material (PDF, DOCX, PPTX,
+>   TXT), confirm the inferred goal, get per-question observations and research suggestions.
+>   Synthetic material only, deleted after 24 hours, never indexed. **The review checklist (`rubric/checklist.json`) is a DEVELOPMENT PLACEHOLDER.** Its questions were drafted by Claude only so the feature could be built and tested; Addison Robertson (SME) must rewrite them before any teacher use.
 > - **R7 Declines:** an unanswerable result may have no sentences; the page shows a fixed
 >   decline message written in code.
 

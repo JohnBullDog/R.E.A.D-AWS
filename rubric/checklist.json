@@ -1,0 +1,78 @@
+{
+  "status": "DEVELOPMENT PLACEHOLDER",
+  "note": "These review questions were drafted by Claude for development and testing only. They must be rewritten by Addison Robertson (subject-matter expert) before any teacher use. Do not treat them as validated guidance.",
+  "owner": "Addison Robertson (SME), pending rewrite",
+  "version": "dev-0.1",
+  "criteria": [
+    {
+      "criterion_id": "goal-clear-objective",
+      "component": "Planning",
+      "grade_band": "K-5",
+      "question": "Does the material state what students will learn or be able to do, in a way the teacher could check?",
+      "search_query": "clear learning objective for reading instruction lesson goals"
+    },
+    {
+      "criterion_id": "oral-academic-language",
+      "component": "Oral and academic language",
+      "grade_band": "K-3",
+      "question": "Does the material build academic language, such as vocabulary, inferential talk, or retelling events in order?",
+      "search_query": "teach academic language inferential narrative language vocabulary"
+    },
+    {
+      "criterion_id": "phonological-awareness",
+      "component": "Phonological awareness",
+      "grade_band": "K-1",
+      "question": "Does the material help students hear and work with the sounds in spoken words, and connect those sounds to letters?",
+      "search_query": "phonemic awareness segment blend sounds link to letters"
+    },
+    {
+      "criterion_id": "decoding-word-analysis",
+      "component": "Phonics and decoding",
+      "grade_band": "K-3",
+      "question": "Does the material teach students to decode words and recognize common spelling patterns or word parts?",
+      "search_query": "teach students to decode words analyze word parts sound-spelling patterns"
+    },
+    {
+      "criterion_id": "explicit-systematic",
+      "component": "Phonics and decoding",
+      "grade_band": "K-5",
+      "question": "Is new skill instruction explicit (modeled by the teacher) and part of a planned sequence?",
+      "search_query": "explicit systematic phonics instruction modeling"
+    },
+    {
+      "criterion_id": "connected-text-fluency",
+      "component": "Fluency",
+      "grade_band": "K-5",
+      "question": "Do students read connected text with support, such as reading aloud with feedback or repeated reading?",
+      "search_query": "read connected text daily guided oral reading feedback fluency"
+    },
+    {
+      "criterion_id": "comprehension-purpose",
+      "component": "Comprehension",
+      "grade_band": "K-5",
+      "question": "Does the material help students read for meaning, such as checking understanding or discussing the text?",
+      "search_query": "reading for understanding comprehension monitor meaning"
+    },
+    {
+      "criterion_id": "practice-and-feedback",
+      "component": "Instruction",
+      "grade_band": "K-5",
+      "question": "Are there chances for students to practice with the teacher giving prompts, scaffolds, or corrective feedback?",
+      "search_query": "guided practice scaffolding corrective feedback word reading"
+    },
+    {
+      "criterion_id": "check-progress",
+      "component": "Assessment",
+      "grade_band": "K-5",
+      "question": "Does the material include a way to see whether students learned the skill?",
+      "search_query": "assess student progress monitor reading skills"
+    },
+    {
+      "criterion_id": "ms-standards",
+      "component": "Mississippi standards",
+      "grade_band": "K-5",
+      "question": "Which Mississippi College- and Career-Readiness Standards for English Language Arts does the material address for this grade?",
+      "search_query": "Mississippi College and Career Readiness Standards English Language Arts foundational skills grade"
+    }
+  ]
+}

@@ -60,6 +60,9 @@ Build now:
 - One static HTML page, NotebookLM-style: the answer with numbered citations that expand to the
   verbatim excerpts, and a Sources list (D53)
 - Golden-question evaluation script
+- Material review (`/review`, pulled forward from Phase 2): a teacher uploads sample material
+  (PDF, DOCX, PPTX, TXT, or pasted text), confirms the inferred goal, and gets feedback per
+  checklist question with research suggestions. **The review checklist (`rubric/checklist.json`) is a DEVELOPMENT PLACEHOLDER.** Its questions were drafted by Claude only so the feature could be built and tested; Addison Robertson (SME) must rewrite them before any teacher use.
 
 Deferred until Q&A works end to end (don't build unless asked): Step Functions, SQS,
 embedding cache, Textract, DOC conversion via LibreOffice, WAF, response cache, Bedrock evaluation jobs, HTML/EPUB extractors.
@@ -119,7 +122,10 @@ scripts/setup_opensearch.py  collection policies, index mapping, hybrid-norm pip
 scripts/eval.py           runs the golden set, reports recall@8 and MRR
 corpus/                   source files + meta.json sidecars (sources not committed if large)
 eval/golden.jsonl         golden questions with expected section IDs (owned by Addison)
-web/index.html            teacher page
+rubric/checklist.json     review questions: DEVELOPMENT PLACEHOLDER, to be rewritten by Addison
+web/index.html            teacher Q&A page (Test)
+web/review.html           material review page; web/checklist.html edits the checklist
+web/sources.html          ingest and manage sources
 tests/
 ```
 

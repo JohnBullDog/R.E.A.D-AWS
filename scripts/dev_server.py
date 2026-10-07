@@ -26,10 +26,12 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from read import pipeline, service  # noqa: E402
+from read import pipeline, review, service  # noqa: E402
 from read.chunk import sha  # noqa: E402
+from read.extract import Unsupported, extract  # noqa: E402
 from read.ingest import LICENSE_FIELDS, check_meta  # noqa: E402
-from read.store import ensure_index  # noqa: E402
+from read.retrieve import parse_band  # noqa: E402
+from read.store import TempStore, ensure_index  # noqa: E402
 
 CORPUS = ROOT / "corpus"
 WEB = ROOT / "web"
@@ -40,6 +42,10 @@ app = FastAPI(title="R.E.A.D. dev server", docs_url=None, redoc_url=None)
 STORES = service.Stores.local(ROOT)
 ensure_index(STORES.os)
 JOBS: dict[str, dict] = {}
+CHECKLIST = ROOT / "rubric" / "checklist.json"
+TEMP = TempStore(ROOT / "data" / "plans-temp", hours=24)  # rule 7: deleted after 24 hours
+TEMP.purge()
+REVIEWS: dict[str, dict] = {}
 
 
 def meta_path(filename: str) -> Path:
@@ -75,6 +81,16 @@ def page_test():
 @app.get("/sources")
 def page_sources():
     return FileResponse(WEB / "sources.html")
+
+
+@app.get("/review")
+def page_review():
+    return FileResponse(WEB / "review.html")
+
+
+@app.get("/checklist")
+def page_checklist():
+    return FileResponse(WEB / "checklist.html")
 
 
 @app.get("/style.css")
@@ -303,6 +319,169 @@ def api_delete(work_id: str, confirm: str = ""):
     return {
         "ok": True,
         "note": "Removed from search and tables; the file and meta.json stay in corpus/.",
+    }
+
+
+# ---------------- material review (development checklist: rubric/checklist.json) ----------------
+
+
+@app.get("/api/checklist")
+def api_checklist():
+    return review.load_checklist(CHECKLIST)
+
+
+@app.put("/api/checklist")
+def api_checklist_save(body: dict):
+    problems = review.check_checklist(body)
+    if problems:
+        raise HTTPException(400, "; ".join(problems[:5]))
+    current = review.load_checklist(CHECKLIST)
+    keep = {k: current[k] for k in ("status", "note", "owner") if k in current}
+    CHECKLIST.write_text(
+        json.dumps({**keep, **body, **keep}, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return {"ok": True}
+
+
+@app.post("/api/review")
+async def api_review_upload(
+    synthetic: Annotated[bool, Form()],
+    goal_note: Annotated[str, Form()] = "",
+    text: Annotated[str, Form()] = "",
+    file: Annotated[UploadFile | None, File()] = None,
+):
+    """Upload sample material (file or pasted text); returns the inferred goal to confirm."""
+    if not synthetic:
+        raise HTTPException(
+            400, "Use sample (synthetic) material only: no real student or teacher data."
+        )
+    TEMP.purge()
+    if file is not None and file.filename:
+        data = await file.read()
+        if len(data) > MAX_UPLOAD:
+            raise HTTPException(413, "file over 60 MB")
+        try:
+            ex = extract(data)
+        except Unsupported as e:
+            raise HTTPException(400, f"Can't read that file: {e}") from None
+        kind, material = ex.kind, ex.text
+    elif text.strip():
+        kind, material = "pasted text", text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    else:
+        raise HTTPException(400, "Upload a file or paste the material.")
+    words = len(material.split())
+    if words > review.MAX_MATERIAL_WORDS:
+        raise HTTPException(
+            400, f"Material is {words:,} words; the limit is {review.MAX_MATERIAL_WORDS:,}."
+        )
+    parts = review.material_parts(material)
+    if not parts:
+        raise HTTPException(400, "No readable text found in the material.")
+    rid = TEMP.new()
+    TEMP.put_json(rid, "material.json", {"kind": kind, "text": material, "parts": parts})
+    try:
+        goal = review.infer_goal(parts, goal_note, STORES.bedrock)
+    except Exception as e:  # show the problem; the teacher can still type the goal
+        goal = review.clean_goal({"objective": goal_note, "grade_band": "K-5"})
+        goal["inference_error"] = str(e)[:200]
+    TEMP.put_json(rid, "goal.json", goal)
+    return {"review_id": rid, "kind": kind, "words": words, "parts": len(parts), "goal": goal}
+
+
+class GoalIn(BaseModel):
+    material_type: str
+    grade_band: str
+    focus: str
+    objective: str
+
+
+def _evidence_for(st, criterion: dict, goal: dict) -> tuple[list[dict], list[dict]]:
+    band = parse_band(goal["grade_band"]) or (None, None)
+    opts = service.SearchOptions(grade_min=band[0], grade_max=band[1], max_results=4)
+    res = service.search(f"{criterion['search_query']}. {goal['objective']}", st, options=opts)
+    excerpts = res["excerpts"]
+    return [{"cite_id": x["cite_id"], "text": x["text"]} for x in excerpts], excerpts
+
+
+def run_review(rid: str, goal: dict, criteria: list[dict]) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    state = REVIEWS[rid]
+    material = TEMP.get_json(rid, "material.json")
+    parts = material["parts"]
+    local = threading.local()
+
+    def one(criterion: dict) -> dict:
+        if not hasattr(local, "st"):
+            local.st = service.Stores.local(ROOT)
+        st = local.st
+        base = {k: criterion[k] for k in ("criterion_id", "component", "question")}
+        try:
+            evidence, excerpts = _evidence_for(st, criterion, goal)
+            res = review.review_criterion(
+                criterion,
+                goal,
+                parts,
+                evidence,
+                lambda c, g, p, e, fb: review.call_review(c, g, p, e, st.bedrock, fb),
+            )
+        except Exception as e:  # one failed question shouldn't stop the review
+            res, excerpts = (
+                {"ok": False, "problems": [f"{type(e).__name__}: {e}"[:200]], "attempts": []},
+                [],
+            )
+        out = {**base, "ok": res["ok"], "attempts": res["attempts"], "research": excerpts}
+        if res["ok"]:
+            out["review"] = review.display(
+                res["result"],
+                parts,
+                [{"cite_id": x["cite_id"], "text": x["text"]} for x in excerpts],
+            )
+        else:
+            out["problems"] = res["problems"]
+        state["results"].append(out)
+        return out
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(one, criteria))
+    order = {c["criterion_id"]: i for i, c in enumerate(criteria)}
+    state["results"].sort(key=lambda r: order[r["criterion_id"]])
+    state["state"] = "done"
+    TEMP.put_json(rid, "review.json", {"goal": goal, "results": state["results"]})
+
+
+@app.post("/api/review/{rid}/run")
+def api_review_run(rid: str, body: GoalIn):
+    try:
+        TEMP.path(rid, "material.json")
+    except KeyError:
+        raise HTTPException(404, "review not found (material is deleted after 24 hours)") from None
+    goal = review.clean_goal(body.model_dump())
+    TEMP.put_json(rid, "goal.json", goal)
+    checklist = review.load_checklist(CHECKLIST)
+    criteria = review.applicable(checklist["criteria"], goal["grade_band"])
+    REVIEWS[rid] = {"state": "running", "total": len(criteria), "results": [], "goal": goal}
+    threading.Thread(target=run_review, args=(rid, goal, criteria), daemon=True).start()
+    return {"total": len(criteria)}
+
+
+@app.get("/api/review/{rid}")
+def api_review_status(rid: str):
+    try:
+        material = TEMP.get_json(rid, "material.json")
+    except (KeyError, FileNotFoundError):
+        raise HTTPException(404, "review not found (material is deleted after 24 hours)") from None
+    state = REVIEWS.get(rid, {"state": "not started", "total": 0, "results": []})
+    checklist = review.load_checklist(CHECKLIST)
+    return {
+        **state,
+        "done": len(state["results"]),
+        "material": {"kind": material["kind"], "parts": material["parts"]},
+        "checklist_status": checklist.get("status"),
+        "checklist_note": checklist.get("note"),
+        "disclaimer": service.DISCLAIMER,
     }
 
 

@@ -174,3 +174,52 @@ class LocalTextStore:
 
     def get(self, work_id: str, version_id: str) -> str:
         return (self.root / self.key(work_id, version_id)).read_bytes().decode("utf-8")
+
+
+# ---- Temporary material store: plans-temp (S3 with a 24-hour lifecycle delete in AWS) ----
+
+
+class TempStore:
+    """Submitted material and its review, kept at most `hours` and never indexed (rule 7)."""
+
+    def __init__(self, root: str | os.PathLike, hours: float = 24):
+        from pathlib import Path
+
+        self.root, self.hours = Path(root), hours
+
+    def new(self) -> str:
+        import uuid
+
+        rid = uuid.uuid4().hex[:16]
+        (self.root / rid).mkdir(parents=True)
+        return rid
+
+    def path(self, rid: str, name: str):
+        if not rid.isalnum() or not self.root.joinpath(rid).is_dir():
+            raise KeyError(rid)
+        return self.root / rid / name
+
+    def put_json(self, rid: str, name: str, value) -> None:
+        import json
+
+        self.path(rid, name).write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+
+    def get_json(self, rid: str, name: str):
+        import json
+
+        return json.loads(self.path(rid, name).read_text(encoding="utf-8"))
+
+    def purge(self, now: float | None = None) -> int:
+        """Delete every review folder older than `hours`; returns how many were removed."""
+        import shutil
+        import time
+
+        if not self.root.is_dir():
+            return 0
+        cutoff = (now if now is not None else time.time()) - self.hours * 3600
+        gone = 0
+        for d in self.root.iterdir():
+            if d.is_dir() and d.stat().st_mtime < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+                gone += 1
+        return gone

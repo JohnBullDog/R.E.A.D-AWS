@@ -194,3 +194,6 @@ details.source[open] > summary::after { content: "Hide ▴"; }
 details.source .kind { margin-top: 10px; }
 details.more > summary { cursor: pointer; color: var(--muted); margin: 6px 0 10px; }
 q.vquote { quotes: "\201C" "\201D"; background: var(--chip); border-radius: 4px; padding: 0 3px; font-style: italic; }
+.chip.mat { color: var(--ok); }
+.chip.mat:hover { background: var(--ok); color: var(--accent-ink); border-color: var(--ok); }
+h3.group { margin: 22px 0 8px; }

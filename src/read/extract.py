@@ -62,11 +62,14 @@ def sniff(data: bytes) -> str:
     if data[:4] == b"PK\x03\x04":
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as z:
-                if "word/document.xml" in z.namelist():
+                names = z.namelist()
+                if "word/document.xml" in names:
                     return "docx"
+                if "ppt/presentation.xml" in names:
+                    return "pptx"
         except zipfile.BadZipFile:
             pass
-        raise Unsupported("zip container that is not a Word document")
+        raise Unsupported("zip container that is not a Word or PowerPoint document")
     if data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
         return "doc"
     return "txt"
@@ -80,6 +83,8 @@ def extract(data: bytes) -> Extracted:
         return extract_pdf(data)
     if kind == "docx":
         return extract_docx(data)
+    if kind == "pptx":
+        return extract_pptx(data)
     raise Unsupported("legacy .doc needs LibreOffice conversion (deferred); save it as .docx")
 
 
@@ -354,3 +359,44 @@ def extract_docx(data: bytes) -> Extracted:
                 if row_text.strip(TABLE_CELL_SEP.strip() + " "):
                     paras.append(row_text)
     return Extracted(text="\n\n".join(paras), headings=headings, kind="docx")
+
+
+def extract_pptx(data: bytes) -> Extracted:
+    """Slides in order: each slide's title is a heading; text boxes, then table rows, then
+    speaker notes. page_starts marks where each slide begins (page = slide number)."""
+    from pptx import Presentation
+
+    deck = Presentation(io.BytesIO(data))
+    parts: list[str] = []
+    page_starts: list[int] = []
+    headings: set[str] = set()
+    pos = 0
+    for n, slide in enumerate(deck.slides, 1):
+        paras: list[str] = []
+        title = slide.shapes.title
+        title_text = " ".join(normalize_newlines(title.text).split()) if title is not None else ""
+        paras.append(title_text or f"Slide {n}")
+        headings.add(paras[0])
+        for shape in slide.shapes:
+            if title is not None and shape.shape_id == title.shape_id:
+                continue
+            if shape.has_text_frame:
+                for p in shape.text_frame.paragraphs:
+                    t = " ".join(normalize_newlines("".join(r.text for r in p.runs)).split())
+                    if t:
+                        paras.append(t)
+            if getattr(shape, "has_table", False) and shape.has_table:
+                for row in shape.table.rows:
+                    cells = [" ".join(normalize_newlines(c.text).split()) for c in row.cells]
+                    row_text = TABLE_CELL_SEP.join(cells).strip()
+                    if row_text.strip(TABLE_CELL_SEP.strip() + " "):
+                        paras.append(row_text)
+        if slide.has_notes_slide:
+            notes = normalize_newlines(slide.notes_slide.notes_text_frame.text).strip()
+            if notes:
+                paras.append("Speaker notes: " + " ".join(notes.split()))
+        piece = ("\n\n" if parts else "") + "\n\n".join(paras)
+        page_starts.append(pos + (2 if parts else 0))
+        parts.append(piece)
+        pos += len(piece)
+    return Extracted(text="".join(parts), page_starts=page_starts, headings=headings, kind="pptx")

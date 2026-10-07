@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R.E.A.D. Review</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <span class="brand">R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></span>
+  <nav><a href="/">Test</a><a href="/review" class="on">Review</a><a href="/sources">Sources</a><a href="/checklist">Checklist</a></nav>
+  <span class="devtag">local dev</span>
+</header>
+<main>
+  <h1>Review teaching material</h1>
+  <p class="sub">Upload a lesson plan, worksheet, or slides. R.E.A.D. confirms your goal, then gives feedback on each checklist question with suggestions from the research.</p>
+
+  <div class="disclaimer" id="devnote">
+    <strong>Development checklist.</strong> The review questions are placeholders written for development; Addison will rewrite them before any teacher use.
+  </div>
+  <div class="disclaimer">
+    <strong>Sample material only.</strong> Don't upload real student, teacher, or district information. Uploaded material is never added to the research library and is deleted after 24 hours.
+  </div>
+
+  <section id="step1" class="panel">
+    <h3>1. Your material</h3>
+    <form id="up">
+      <div class="grid">
+        <label>File (PDF, Word, PowerPoint, or text)<input id="file" type="file" accept=".pdf,.docx,.pptx,.txt"></label>
+        <label>Your goal (optional)<input id="goalNote" type="text" maxlength="500" placeholder="e.g. 1st graders blend CVC words"></label>
+      </div>
+      <label style="display:block;margin-top:10px" class="notice">Or paste the material
+        <textarea id="paste" rows="6" placeholder="Paste lesson text here"></textarea>
+      </label>
+      <div class="row" style="margin-top:10px">
+        <label class="check"><input id="synthetic" type="checkbox"> This is sample material with no real student or teacher data</label>
+      </div>
+      <div class="row" style="margin-top:10px"><button id="readBtn" type="submit">Read material</button><span id="upMsg" class="notice"></span></div>
+    </form>
+  </section>
+
+  <section id="step2" class="panel" hidden>
+    <h3>2. Confirm the goal</h3>
+    <p class="notice" id="goalSource"></p>
+    <div class="grid">
+      <label>Material type<input id="gType" type="text"></label>
+      <label>Grade (K, 1, or a range like K-2)<input id="gBand" type="text"></label>
+      <label>Focus skill<input id="gFocus" type="text"></label>
+    </div>
+    <label style="display:block;margin-top:10px" class="notice">Objective
+      <textarea id="gObj" rows="2"></textarea>
+    </label>
+    <div class="row" style="margin-top:10px"><button id="runBtn">Run review</button><span id="runMsg" class="notice"></span></div>
+  </section>
+
+  <section id="step3" hidden>
+    <h2>Feedback <span class="kind">machine-generated</span></h2>
+    <div class="notice" id="progress"></div>
+    <div id="results"></div>
+  </section>
+</main>
+<script>
+// All material, research, and model text is rendered with textContent (CLAUDE.md rule 9).
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+let rid = null;
+let materialParts = {};
+
+async function call(method, url, body) {
+  const r = await fetch(url, body instanceof FormData ? {method, body} :
+    {method, headers: body ? {"Content-Type": "application/json"} : {}, body: body ? JSON.stringify(body) : undefined});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || r.status);
+  return data;
+}
+
+$("up").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("upMsg").textContent = "";
+  const f = $("file").files[0];
+  if (!f && !$("paste").value.trim()) { $("upMsg").textContent = "Choose a file or paste the material."; return; }
+  if (!$("synthetic").checked) { $("upMsg").textContent = "Please confirm this is sample material."; return; }
+  const body = new FormData();
+  if (f) body.append("file", f);
+  body.append("text", $("paste").value);
+  body.append("goal_note", $("goalNote").value);
+  body.append("synthetic", "true");
+  $("readBtn").disabled = true;
+  $("upMsg").textContent = "Reading the material and working out the goal…";
+  try {
+    const res = await call("POST", "/api/review", body);
+    rid = res.review_id;
+    const g = res.goal;
+    $("gType").value = g.material_type; $("gBand").value = g.grade_band; $("gFocus").value = g.focus; $("gObj").value = g.objective;
+    $("goalSource").textContent = `Read ${res.words.toLocaleString()} words (${res.kind}, ${res.parts} parts). ` +
+      ($("goalNote").value.trim() ? "Goal based on your note and the material; edit anything that's off." : "Goal inferred from the material; edit anything that's off.") +
+      (g.inference_error ? " (Couldn't infer a goal automatically; please fill it in.)" : "");
+    $("step2").hidden = false;
+    $("upMsg").textContent = "";
+  } catch (e) {
+    $("upMsg").textContent = "";
+    $("upMsg").append(el("span", "err", e.message));
+  } finally {
+    $("readBtn").disabled = false;
+  }
+});
+
+$("runBtn").addEventListener("click", async () => {
+  $("runBtn").disabled = true;
+  $("runMsg").textContent = "";
+  try {
+    const goal = {material_type: $("gType").value, grade_band: $("gBand").value, focus: $("gFocus").value, objective: $("gObj").value};
+    const {total} = await call("POST", `/api/review/${rid}/run`, goal);
+    $("step3").hidden = false;
+    $("results").replaceChildren();
+    $("progress").textContent = `Reviewing ${total} checklist questions…`;
+    while (true) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const st = await call("GET", `/api/review/${rid}`);
+      materialParts = Object.fromEntries(st.material.parts.map((p) => [p.id, p]));
+      $("progress").textContent = st.state === "done" ? `${st.total} questions reviewed. ${st.disclaimer}` : `Reviewed ${st.done} of ${st.total}…`;
+      if (st.state === "done") { renderResults(st.results); break; }
+    }
+  } catch (e) {
+    $("runMsg").append(el("span", "err", e.message));
+  } finally {
+    $("runBtn").disabled = false;
+  }
+});
+
+const SEEN = {yes: ["Seen in material", "ok"], partly: ["Partly seen", "warn"], no: ["Not seen", "warn"]};
+
+function quoteOf(x) {
+  const quote = el("blockquote");
+  let pos = 0;
+  for (const [s, e] of x.highlights || []) {
+    if (s > pos) quote.append(x.text.slice(pos, s));
+    const start = Math.max(s, pos);
+    if (e > start) quote.append(el("mark", null, x.text.slice(start, e)));
+    pos = Math.max(pos, e);
+  }
+  quote.append(x.text.slice(pos));
+  return quote;
+}
+
+function sentenceLine(s, card, research) {
+  const p = el("p", "answertext");
+  for (const part of s.parts) {
+    if (part.quote != null) {
+      const q = el("q", "vquote", part.quote);
+      q.title = part.cite.startsWith("M") ? "Exact words from your material" : "Exact words from the research (verified)";
+      p.append(q);
+    } else p.append(part.text);
+  }
+  for (const m of s.material) p.append(" ", chip(`Part ${m.slice(1)}`, "chip mat", () => toggle(card, "m-" + m, () => materialCard(m))));
+  for (const c of s.cites) p.append(" ", chip(c.slice(1), "chip", () => toggle(card, "s-" + c, () => researchCard(research, c))));
+  return p;
+}
+
+function chip(label, cls, onClick) {
+  const b = el("button", cls, label);
+  b.type = "button";
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function toggle(card, key, make) {
+  const tray = card.querySelector(".reftray");
+  const open = tray.querySelector(`[data-key="${CSS.escape(key)}"]`);
+  if (open) { open.remove(); return; }
+  const c = make();
+  c.dataset.key = key;
+  tray.prepend(c);
+}
+
+function materialCard(m) {
+  const box = el("article", "panel refcard");
+  box.append(el("div", "kind", `Your material, part ${m.slice(1)}`), el("blockquote", null, (materialParts[m] || {}).text || ""));
+  return box;
+}
+
+function researchCard(research, c) {
+  const x = research.find((r) => r.cite_id === c);
+  const box = el("article", "panel refcard");
+  if (!x) return box;
+  box.append(el("strong", null, x.label), el("div", "where", [x.title, x.section_path].filter(Boolean).join(" › ")),
+    el("div", "kind", "Verbatim source text"), quoteOf(x));
+  return box;
+}
+
+function renderResults(results) {
+  const box = $("results");
+  box.replaceChildren();
+  const groups = {};
+  for (const r of results) (groups[r.component] = groups[r.component] || []).push(r);
+  for (const [component, items] of Object.entries(groups)) {
+    box.append(el("h3", "group", component));
+    for (const r of items) {
+      const card = el("article", "panel");
+      const head = el("div", "row");
+      head.append(el("strong", null, r.question));
+      card.append(head);
+      if (!r.ok) {
+        card.append(el("p", "err", "Feedback couldn't be generated for this question."));
+      } else {
+        const v = r.review;
+        const [label, cls] = v.applies ? SEEN[v.seen] : ["Not applicable", ""];
+        head.append(el("span", "tag " + cls, label));
+        card.append(el("div", "kind", "What the material does"));
+        v.observation.forEach((s) => card.append(sentenceLine(s, card, r.research)));
+        if (v.suggestions.length) {
+          card.append(el("div", "kind", "What the research suggests"));
+          v.suggestions.forEach((s) => card.append(sentenceLine(s, card, r.research)));
+        }
+      }
+      const tray = el("div", "reftray");
+      card.append(tray);
+      box.append(card);
+    }
+  }
+}
+</script>
+</body>
+</html>

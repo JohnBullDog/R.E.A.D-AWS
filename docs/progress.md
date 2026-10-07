@@ -2,6 +2,22 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-07 — Session 2f: material review feature
+
+**Done (D56-D61)**: `src/read/review.py` (goal inference, per-question review, validation,
+retry with feedback, verified quotes from material and research), `TempStore` (24-hour purge),
+PowerPoint extraction, `rubric/checklist.json` (10 questions), API routes, `web/review.html`
+(upload or paste, confirm goal, feedback grouped by component with expandable material and
+research references), `web/checklist.html` (edit questions). 121 unit tests pass.
+
+**The review checklist (`rubric/checklist.json`) is a DEVELOPMENT PLACEHOLDER.** Its questions were drafted by Claude only so the feature could be built and tested; Addison Robertson (SME) must rewrite them before any teacher use.
+
+**Verified live** (synthetic sample lesson I wrote, about 25 cents for two runs): goal inferred as
+kindergarten / phonemic awareness / segmenting words; 10 questions in about 20 s. First run:
+"seen" badges contradicted the text (fixed in the prompt); second run: badges match (no stated
+objective -> no; phonological awareness -> yes; coloring worksheet as assessment -> no). One
+question fails per run on the uncited-reuse rule (different question each run).
+
 ## 2026-10-07 — Session 2e: verified quotes; answer at the top
 
 **Why answers regenerated**: Nova's first drafts failed the 8-word copy rule on 8 of 10

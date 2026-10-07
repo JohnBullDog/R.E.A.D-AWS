@@ -39,6 +39,13 @@ Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against 
   quotes are fragments where Nova changed one word mid-phrase. Option: if more than about half
   of an answer's words are quoted, retry asking for more of its own words. Needs John's call.
 
+- Review checklist: DEVELOPMENT PLACEHOLDER. Addison must rewrite every question in
+  `rubric/checklist.json` (Checklist page) before teacher use.
+- Review: the Mississippi-standards question sometimes fails validation (Nova reuses research
+  wording without citing that section, on both attempts), and nothing yet checks that a
+  suggestion is actually supported by the section it cites. Options later: auto-add the
+  citation for reused wording; a support check on the golden set.
+
 ## Needs John (not decisions)
 - License verification for the 4 placeholders (John or Addison): check each source's terms,
   then fill in `license`, `license_verified_by` (your name) and `license_verified_on`
