@@ -25,6 +25,7 @@ MAX_SECTION_WORDS = 1500  # a headed section splits after this many words (conti
 MAX_UNHEADED_WORDS = 500  # a run with no heading closes after this many words...
 MAX_UNHEADED_PARAS = 5  # ...or this many paragraphs, whichever comes first (Q4)
 MAX_PARAGRAPH_WORDS = 400  # longer paragraphs are split at sentence boundaries
+MIN_SECTION_WORDS = 40  # a heading doesn't close a section smaller than this; they merge
 
 
 class ChunkError(Exception):
@@ -107,12 +108,15 @@ def build_chunks(
     max_sec: int = MAX_SECTION_WORDS,
     max_unheaded_words: int = MAX_UNHEADED_WORDS,
     max_unheaded_paras: int = MAX_UNHEADED_PARAS,
+    min_sec: int = MIN_SECTION_WORDS,
 ) -> tuple[list[dict], list[dict]]:
     """Return (sections, passages) for one canonical text. Passages never cross a section.
 
     A section starts at each heading. Under a heading, a section splits after max_sec words
     and the continuation keeps the heading as its section_path. Text with no heading forms
-    sections of at most max_unheaded_paras paragraphs or max_unheaded_words words.
+    sections of at most max_unheaded_paras paragraphs or max_unheaded_words words. A heading
+    that arrives before the current section reaches min_sec words doesn't start a new one, so
+    runs of headings and labels merge instead of making excerpts too small to give context.
     """
     pages = page_starts or []
     sections: list[dict] = []
@@ -171,8 +175,11 @@ def build_chunks(
         words = len(para.split())
         heading = is_heading(para, headings)
         if heading:
-            close_section()
             path = para
+            if sec and sec["words"] < min_sec:  # too small to stand alone: keep growing it
+                sec["path"] = sec["path"] or para
+            else:
+                close_section()
         elif sec:
             full = (
                 sec["words"] + words > max_sec

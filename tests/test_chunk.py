@@ -100,7 +100,8 @@ def test_passages_never_cross_sections():
 
 def test_explicit_headings_from_extractor():
     text = "Recommendation 1\n\nTeach students to blend sounds.\n\nRecommendation 2\n\nRead daily."
-    sections, _ = build_chunks("w", "v1", text, headings={"Recommendation 1", "Recommendation 2"})
+    heads = {"Recommendation 1", "Recommendation 2"}
+    sections, _ = build_chunks("w", "v1", text, headings=heads, min_sec=0)
     assert [s["section_path"] for s in sections] == ["Recommendation 1", "Recommendation 2"]
 
 
@@ -132,3 +133,13 @@ def test_verify_rejects_tampered_passage():
     passages[0]["text"] = passages[0]["text"].replace("Some", "Same")
     with pytest.raises(ChunkError):
         verify(text, sections, passages)
+
+
+def test_small_sections_merge_until_40_words():
+    body = " ".join(["word"] * 50) + "."
+    text = "\n\n".join(["Recommendation 1", "Teach academic language", body, "Step 1", body])
+    heads = {"Recommendation 1", "Teach academic language", "Step 1"}
+    sections, _ = build_chunks("w", "v1", text, headings=heads)
+    assert [s["section_path"] for s in sections] == ["Recommendation 1", "Step 1"]
+    first = text[sections[0]["char_start"] : sections[0]["char_end"]]
+    assert first.startswith("Recommendation 1\n\nTeach academic language\n\n")

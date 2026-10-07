@@ -2,6 +2,24 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-06 — Session 1h: placeholder corpus + real-document fixes
+
+**Done**
+- Downloaded 4 public placeholders into `corpus/` (PDFs git-ignored) with draft `.meta.json`
+  sidecars (D39): WWC foundational skills 2016, NRP report 2000 (ERIC), MS CCRS ELA 2025 and 2016.
+- Real documents exposed 5 problems, all fixed (D35-D38): cover letters as headings; TOC lines;
+  9-word sections in the standards; two-column pages merged; duplicated ligatures and run-together
+  words in the old NRP scan.
+
+**Verified**
+- 76 unit tests pass. Corpus summary after the fixes:
+  WWC 123 pp: 320 sections (median 98 words); NRP 37 pp: 72 sections (127 words);
+  MS 2025 284 pp: 553 sections (89 words); MS 2016 229 pp: 521 sections (89 words).
+  Extraction takes about 8-43 s per document.
+- Spot check: WWC Recommendation 1 now reads in order with correct page labels.
+
+**Known gaps**: figures/boxed tables still jumble; the NRP cover page is garbled OCR.
+
 ## 2026-10-06 — Session 1g: copy fix + reranker cut-off removed
 
 - Prompt now states the 8-word rule exactly (D34). Before: Nova copied "...against the stored

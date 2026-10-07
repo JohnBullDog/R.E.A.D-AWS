@@ -22,6 +22,9 @@ SENTENCE_END = re.compile(r"[.!?:\"”)]$")
 MARGIN = 0.08  # top/bottom share of the page where running headers and footers live
 HEADING_SIZE_RATIO = 1.15  # a line this much larger than body text can be a heading
 MAX_HEADING_CHARS = 120
+GUTTER_GAP = 8.0  # min horizontal gap (pt) between a left and right column on one line
+MIN_SPLIT_LINES = 5  # a page needs this many split lines to count as two-column
+TOC_LINE = re.compile(r"\.{4,}\s*\d+\s*$")  # "Introduction ........ 3"
 
 
 class Unsupported(Exception):
@@ -46,6 +49,7 @@ class Line:
     x0: float
     size: float  # median font size of the line's characters
     bold: bool  # every visible character is in a bold/semibold font
+    col_start: bool = False  # first line of the right column in a two-column region
 
 
 def normalize_newlines(s: str) -> str:
@@ -93,25 +97,106 @@ def extract_txt(data: bytes) -> Extracted:
     return Extracted(text=text, kind="txt")
 
 
+def chars_text(chars: list[dict]) -> str:
+    """Rebuild text from characters in reading order (used for lines split at a gutter).
+
+    A space goes where the gap exceeds 30% of the median character width, which works in any
+    coordinate units; a glyph drawn twice at the same spot (some PDFs do) is kept once.
+    """
+    ordered = sorted(chars, key=lambda c: c["x0"])
+    widths = sorted(c["x1"] - c["x0"] for c in ordered)
+    space = 0.3 * widths[len(widths) // 2]
+    out = ""
+    prev = None
+    for c in ordered:
+        if prev is not None:
+            if c["text"] == prev["text"] and abs(c["x0"] - prev["x0"]) < space:
+                continue
+            if c["x0"] - prev["x1"] > space and not out.endswith(" "):
+                out += " "
+        out += c["text"]
+        prev = c
+    return " ".join(out.split())
+
+
+def make_line(chars: list[dict], top: float, bottom: float, text: str | None = None) -> Line:
+    """A Line from characters; text defaults to a rebuild from the characters."""
+    sizes = sorted(c["size"] for c in chars)
+    return Line(
+        text=normalize_newlines(text if text is not None else chars_text(chars)).strip(),
+        top=top,
+        bottom=bottom,
+        x0=min(c["x0"] for c in chars),
+        size=sizes[len(sizes) // 2],
+        bold=all(BOLD.search(c.get("fontname", "")) for c in chars),
+    )
+
+
+def split_at(chars: list[dict], x: float) -> tuple[list[dict], list[dict], bool]:
+    """(left, right, crosses): crosses is True when text runs across x without a gutter gap."""
+    left = [c for c in chars if c["x1"] <= x]
+    right = [c for c in chars if c["x0"] >= x]
+    if len(left) + len(right) < len(chars):
+        return left, right, True  # a character straddles x
+    if left and right:
+        gap = min(c["x0"] for c in right) - max(c["x1"] for c in left)
+        return left, right, gap < GUTTER_GAP
+    return left, right, False
+
+
+def find_gutter(rows: list[list[dict]], width: float) -> float | None:
+    """x of the gap between two text columns, or None for a one-column page."""
+    best, best_split = None, 0
+    for x in range(int(width * 0.35), int(width * 0.65), 2):
+        split = cross = 0
+        for chars in rows:
+            left, right, crosses = split_at(chars, x)
+            if crosses:
+                cross += 1
+            elif left and right:
+                split += 1
+        if split >= MIN_SPLIT_LINES and split >= 2 * cross and split > best_split:
+            best, best_split = float(x), split
+    return best
+
+
 def pdf_lines(page) -> list[Line]:
-    """Lines of one pdfplumber page with font size and boldness."""
-    out = []
+    """Lines of one pdfplumber page, in reading order, with font size and boldness.
+
+    On a two-column page, lines that run across both columns are split at the gutter and
+    each column is read top to bottom; full-width lines (titles, figures) stay in place.
+    """
+    raws = []
     for raw in page.extract_text_lines(return_chars=True, strip=True):
         chars = [c for c in raw["chars"] if c["text"].strip()]
-        text = normalize_newlines(raw["text"]).strip()
-        if not chars or not text:
+        if chars and raw["text"].strip():
+            raws.append((raw, chars))
+    gutter = find_gutter([chars for _, chars in raws], page.width)
+    if gutter is None:
+        return [make_line(chars, raw["top"], raw["bottom"], raw["text"]) for raw, chars in raws]
+    out: list[Line] = []
+    left_col: list[Line] = []
+    right_col: list[Line] = []
+
+    def flush() -> None:
+        out.extend(left_col)
+        for k, ln in enumerate(right_col):
+            ln.col_start = k == 0 and bool(left_col)
+            out.append(ln)
+        left_col.clear()
+        right_col.clear()
+
+    for raw, chars in raws:
+        left, right, crosses = split_at(chars, gutter)
+        if crosses:  # full-width line: ends the two-column region above it
+            flush()
+            out.append(make_line(chars, raw["top"], raw["bottom"], raw["text"]))
             continue
-        sizes = sorted(c["size"] for c in chars)
-        out.append(
-            Line(
-                text=text,
-                top=raw["top"],
-                bottom=raw["bottom"],
-                x0=raw["x0"],
-                size=sizes[len(sizes) // 2],
-                bold=all(BOLD.search(c.get("fontname", "")) for c in chars),
-            )
-        )
+        if left:
+            left_col.append(make_line(left, raw["top"], raw["bottom"]))
+        if right:
+            right_col.append(make_line(right, raw["top"], raw["bottom"]))
+    flush()
     return out
 
 
@@ -120,7 +205,8 @@ def margin_key(text: str) -> str:
 
 
 def drop_running_lines(pages: list[tuple[float, list[Line]]]) -> list[list[Line]]:
-    """Remove page numbers and headers/footers repeated in the margins of many pages."""
+    """Remove page numbers, headers/footers repeated in the margins of many pages, table-of-
+    contents lines, and single-character lines (decorative cover letters, drop caps)."""
     in_margin = [
         [ln for ln in lines if ln.top < h * MARGIN or ln.bottom > h * (1 - MARGIN)]
         for h, lines in pages
@@ -132,7 +218,13 @@ def drop_running_lines(pages: list[tuple[float, list[Line]]]) -> list[list[Line]
         drop = {
             id(ln) for ln in margin if margin_key(ln.text) in repeated or PAGE_NUMBER.match(ln.text)
         }
-        kept.append([ln for ln in lines if id(ln) not in drop])
+        kept.append(
+            [
+                ln
+                for ln in lines
+                if id(ln) not in drop and len(ln.text) > 1 and not TOC_LINE.search(ln.text)
+            ]
+        )
     return kept
 
 
@@ -164,6 +256,7 @@ def layout_text(pages: list[tuple[float, list[Line]]]) -> tuple[str, list[int], 
     def is_heading(ln: Line) -> bool:
         return (
             len(ln.text) <= MAX_HEADING_CHARS
+            and len(re.findall(r"[^\W\d_]", ln.text)) >= 3
             and not ln.text.endswith((".", ",", ";"))
             and (ln.size >= body * HEADING_SIZE_RATIO or ln.bold)
         )
@@ -198,7 +291,7 @@ def layout_text(pages: list[tuple[float, list[Line]]]) -> tuple[str, list[int], 
             head = is_heading(ln)
             if not para or prev is None:
                 new_para = True
-            elif k == 0:  # first line of a page: continue only a sentence cut by the page break
+            elif k == 0 or ln.col_start:  # page or column break: continue only a cut sentence
                 new_para = (
                     head
                     or para_heading

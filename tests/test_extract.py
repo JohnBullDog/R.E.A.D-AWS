@@ -78,7 +78,7 @@ def test_docx_headings_tables_order():
         "Read connected text daily.",
     ]
     assert ex.headings == {"Recommendation 1", "Recommendation 2"}
-    sections, _ = build_chunks("w", "v", ex.text, ex.headings)
+    sections, _ = build_chunks("w", "v", ex.text, ex.headings, min_sec=0)
     assert [s["section_path"] for s in sections] == ["Recommendation 1", "Recommendation 2"]
 
 
@@ -149,13 +149,22 @@ def test_layout_sentence_like_bold_line_is_not_heading():
 
 
 class FakePdfPage:
-    def __init__(self, lines, height=792.0):
-        self.lines, self.height = lines, height
+    def __init__(self, lines, height=792.0, width=612.0):
+        self.lines, self.height, self.width = lines, height, width
 
     def extract_text_lines(self, return_chars=True, strip=True):
         out = []
         for text, top in self.lines:
-            chars = [{"text": c, "size": 12.0, "fontname": "ABCDEF+Serif-Regular"} for c in text]
+            chars = [
+                {
+                    "text": c,
+                    "size": 12.0,
+                    "fontname": "F-Regular",
+                    "x0": 54.0 + 6 * k,
+                    "x1": 59.5 + 6 * k,
+                }
+                for k, c in enumerate(text)
+            ]
             out.append({"text": text, "top": top, "bottom": top + 12, "x0": 54.0, "chars": chars})
         return out
 
@@ -192,3 +201,75 @@ def test_scanned_pdf_rejected(monkeypatch):
     fake_pdfplumber(monkeypatch, [[], [("  ", 100)], [("p. 3", 760)]])
     with pytest.raises(Unsupported, match="Textract"):
         extract(b"%PDF-1.7")
+
+
+def test_layout_drops_toc_lines_and_cover_letters():
+    body = [L(f"Body sentence number {k} with enough words.", 200 + 18 * k) for k in range(3)]
+    page = (
+        792.0,
+        [L("E", 60, size=40), L("Introduction ........ 3", 120), L("Real Heading", 160, size=16)]
+        + body,
+    )
+    text, _, headings = layout_text([page])
+    assert "Introduction" not in text and not text.startswith("E")
+    assert headings == {"Real Heading"}
+
+
+def chars_for(segments, size=12.0):
+    """Characters for one physical line made of (x_start, text) segments, 6pt per char."""
+    out = []
+    for x, text in segments:
+        for k, ch in enumerate(text):
+            out.append(
+                {
+                    "text": ch,
+                    "size": size,
+                    "fontname": "F-Regular",
+                    "x0": x + 6 * k,
+                    "x1": x + 6 * k + 5.5,
+                }
+            )
+    return out
+
+
+class RawPage:
+    width, height = 612.0, 792.0
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def extract_text_lines(self, return_chars=True, strip=True):
+        return [
+            {
+                "text": "".join(c["text"] for c in chars),
+                "top": top,
+                "bottom": top + 12,
+                "x0": chars[0]["x0"],
+                "chars": chars,
+            }
+            for top, chars in self.rows
+        ]
+
+
+def test_two_column_page_reads_left_then_right():
+    from read.extract import pdf_lines
+
+    left = ["Left one", "Left two", "Left three", "Left four", "Left five end."]
+    right = ["Right one", "Right two", "Right three", "Right four", "Right five."]
+    title = "A Title Spanning The Page Width Across Both Columns Here"
+    rows = [(60.0, chars_for([(54, title)]))]
+    rows += [
+        (100.0 + 18 * k, chars_for([(54, lt), (330, rt)]))
+        for k, (lt, rt) in enumerate(zip(left, right, strict=True))
+    ]
+    lines = pdf_lines(RawPage(rows))
+    assert [ln.text for ln in lines] == [title] + left + right
+    assert [ln.col_start for ln in lines].index(True) == 6
+
+
+def test_one_column_page_is_not_split():
+    from read.extract import pdf_lines
+
+    rows = [(100.0 + 18 * k, chars_for([(54, "word " * 15)])) for k in range(8)]
+    lines = pdf_lines(RawPage(rows))
+    assert len(lines) == 8 and not any(ln.col_start for ln in lines)

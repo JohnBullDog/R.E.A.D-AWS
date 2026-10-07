@@ -29,9 +29,13 @@ Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against 
 - The reranker barely beat hybrid order on the design-doc test corpus. Compare with and
   without it on the golden set before keeping it.
 
+- Figures and boxed tables in PDFs (e.g. WWC 'Example 1.1') still extract as jumbled text.
+  Options later: detect and skip figure regions, or keep them out of excerpts.
+- The NRP placeholder is the ERIC scan of the summary report; its cover page text is garbled
+  (old OCR). The body text is fine.
+
 ## Needs John (not decisions)
 - Boundary policy `read-poc-boundary`: not needed until we deploy Lambdas (week 4); I'll walk
   John through creating it then.
-- First source files (WWC foundational skills guide 2016, NRP "Teaching Children to Read"
-  2000, MS CCRS for ELA): save to `corpus/` and send the download URLs.
+- Real sources: placeholders are in `corpus/` for now (D39); the real list comes from Addison.
 - AWS OpenSearch Serverless test: John sets it up, then says go.
