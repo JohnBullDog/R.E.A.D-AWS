@@ -2,6 +2,16 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-06 — Session 1g: copy fix + reranker cut-off removed
+
+- Prompt now states the 8-word rule exactly (D34). Before: Nova copied "...against the stored
+  text_sha256 before returning it" on 2 of 2 attempts. After: 3 of 3 test questions passed on
+  the first attempt, with accurate paraphrases.
+- Reranker cut-off removed (D33): Amazon Rerank scores relevant sections 0.0001-0.0023, so the
+  0.01 floor wrongly declined real questions. Top 8 kept in rerank order; Nova declines
+  off-topic questions itself (verified: "long division" declined with no sentences).
+- Live re-test passed; 72 unit tests pass. Session AWS cost so far: under $0.15.
+
 ## 2026-10-06 — Session 1f: Q13 rerank cut-off
 
 - Implemented D32 (keep top 8 by rerank order; "no relevant sections" when best score < 0.01).

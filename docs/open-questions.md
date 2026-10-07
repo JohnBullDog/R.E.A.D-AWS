@@ -14,7 +14,7 @@ Answered questions move to `docs/decisions.md` (D-numbers in brackets).
 - Q10 design.md: update it; the proposal is ground truth for the final product [D28]
 - Q11 Development search: local Docker; John sets up the AWS test first [D29]
 - Q2 Reranker: in this build, Amazon Rerank 1.0 in us-west-2 [D31]
-- Q13 Rerank cut-off: order only, top 8, best-score floor 0.01 [D32]
+- Q13 Rerank cut-off: order only, top 8, no cut-off; the answer model declines [D33]
 
 ## Open
 
@@ -23,10 +23,11 @@ D28 makes the proposal the ground truth for the final product, but it isn't in t
 Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against it.
 
 ## To watch (no decision yet)
-- Nova Pro copies source phrases: with 8 sections of evidence it copied an 8-word phrase on
-  both attempts, so the validator correctly blocked the answer (error state). Fix belongs
-  in golden-set tuning: e.g. state the 8-word rule in the prompt, or compare Nova Premier.
-  Any prompt change will be shown to John first.
+- Off-topic questions now still show the 8 closest excerpts before the answer says it can't
+  answer (D33). For the teacher page (week 5): hide or label those excerpts ("closest matches,
+  not an answer") when the answer is a decline. Needs John's call when the page is built.
+- The reranker barely beat hybrid order on the design-doc test corpus. Compare with and
+  without it on the golden set before keeping it.
 
 ## Needs John (not decisions)
 - Boundary policy `read-poc-boundary`: not needed until we deploy Lambdas (week 4); I'll walk

@@ -14,7 +14,6 @@ log = logging.getLogger(__name__)
 
 CANDIDATES = 40
 TOP_N = 8  # sections kept after reranking
-MIN_TOP_SCORE = 0.01  # below this best rerank score: "no relevant sections" (tune on golden set)
 MAX_WORDS = 9000  # evidence budget; whole sections are dropped, never truncated
 QUERY_MAX_CHARS = 500
 
@@ -56,13 +55,12 @@ def rerank(
     client,
     model_arn: str,
     n: int = TOP_N,
-    min_top_score: float = MIN_TOP_SCORE,
 ) -> list[tuple[dict, float]]:
     """Re-order candidates with the Bedrock Rerank API and keep the top n.
 
-    Amazon Rerank scores are nearly all-or-nothing, so they decide order only; the single
-    best score decides whether anything is relevant (Q13). An empty result means "no
-    relevant sections found". client is a boto3 bedrock-agent-runtime client in
+    Rerank scores decide order only: Amazon Rerank's scores are near zero even for relevant
+    text, so no cut-off is applied (D33). Whether the evidence answers the question is decided
+    by the answer model (answerable=false). client is a boto3 bedrock-agent-runtime client in
     RERANK_REGION; model_arn comes from RERANK_MODEL_ARN.
     """
     if not passages:
@@ -86,8 +84,6 @@ def rerank(
     )
     ranked = [(passages[r["index"]], r["relevanceScore"]) for r in res["results"]]
     ranked.sort(key=lambda pr: pr[1], reverse=True)
-    if not ranked or ranked[0][1] < min_top_score:
-        return []
     return ranked
 
 

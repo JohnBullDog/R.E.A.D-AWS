@@ -163,9 +163,9 @@ def test_rerank_keeps_top_n_in_order_regardless_of_low_scores():
     assert fake.kwargs["queries"] == [{"type": "TEXT", "textQuery": {"text": "q"}}]
 
 
-def test_rerank_nothing_relevant_when_best_score_is_below_floor():
+def test_rerank_applies_no_score_cut_off():
     from read.retrieve import rerank
 
-    assert rerank("q", [{"text": "a"}, {"text": "b"}], FakeRerank([0.0, 0.004]), "arn") == []
+    out = rerank("q", [{"text": "a"}, {"text": "b"}], FakeRerank([0.0, 0.0001]), "arn")
+    assert [p["text"] for p, _ in out] == ["b", "a"]
     assert rerank("q", [], FakeRerank([]), "arn") == []
-    assert len(rerank("q", [{"text": "a"}], FakeRerank([0.01]), "arn")) == 1

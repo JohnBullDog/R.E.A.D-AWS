@@ -173,3 +173,9 @@ def test_decline_with_no_sentences_is_valid():
 def test_decline_still_rejects_bad_cites():
     out = good(answerable=False, sentences=[{"text": "Not covered.", "cites": ["S9"]}])
     assert validate(out, EVIDENCE) == ["sentence 0 cites unknown 'S9'"]
+
+
+def test_system_prompt_states_the_copy_rule_with_the_same_n():
+    from read.answer import NGRAM, SYSTEM
+
+    assert f"never repeat {NGRAM} or more consecutive words" in SYSTEM
