@@ -26,8 +26,9 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from read import pipeline, review, service  # noqa: E402
+from read import pipeline, review, review_run, service  # noqa: E402
 from read.chunk import sha  # noqa: E402
+from read.embed import embed  # noqa: E402
 from read.extract import Unsupported, extract  # noqa: E402
 from read.ingest import LICENSE_FIELDS, check_meta  # noqa: E402
 from read.retrieve import parse_band  # noqa: E402
@@ -352,12 +353,14 @@ async def api_review_upload(
     text: Annotated[str, Form()] = "",
     file: Annotated[UploadFile | None, File()] = None,
 ):
-    """Upload sample material (file or pasted text); returns the inferred goal to confirm."""
+    """Upload sample material (file or pasted text); returns the inferred goal and the
+    whole-document questions judged relevant, for the teacher to confirm."""
     if not synthetic:
         raise HTTPException(
             400, "Use sample (synthetic) material only: no real student or teacher data."
         )
     TEMP.purge()
+    headings: set[str] = set()
     if file is not None and file.filename:
         data = await file.read()
         if len(data) > MAX_UPLOAD:
@@ -366,7 +369,7 @@ async def api_review_upload(
             ex = extract(data)
         except Unsupported as e:
             raise HTTPException(400, f"Can't read that file: {e}") from None
-        kind, material = ex.kind, ex.text
+        kind, material, headings = ex.kind, ex.text, set(ex.headings)
     elif text.strip():
         kind, material = "pasted text", text.replace("\r\n", "\n").replace("\r", "\n").strip()
     else:
@@ -379,15 +382,27 @@ async def api_review_upload(
     parts = review.material_parts(material)
     if not parts:
         raise HTTPException(400, "No readable text found in the material.")
+    sections = review.make_sections(parts, headings)
     rid = TEMP.new()
-    TEMP.put_json(rid, "material.json", {"kind": kind, "text": material, "parts": parts})
+    TEMP.put_json(
+        rid, "material.json", {"kind": kind, "text": material, "parts": parts, "sections": sections}
+    )
+    checklist = review.load_checklist(CHECKLIST)
+    _, list_b = review.split_checklist(checklist["criteria"], "K-12")
     try:
-        goal = review.infer_goal(parts, goal_note, STORES.bedrock)
+        goal = review.infer_goal(parts, sections, goal_note, list_b, STORES.bedrock)
     except Exception as e:  # show the problem; the teacher can still type the goal
-        goal = review.clean_goal({"objective": goal_note, "grade_band": "K-5"})
+        goal = review.clean_goal({"objective": goal_note, "grade_band": "K-5"}, list_b)
         goal["inference_error"] = str(e)[:200]
     TEMP.put_json(rid, "goal.json", goal)
-    return {"review_id": rid, "kind": kind, "words": words, "parts": len(parts), "goal": goal}
+    return {
+        "review_id": rid,
+        "kind": kind,
+        "words": words,
+        "parts": len(parts),
+        "sections": [{"title": x["title"], "parts": len(x["parts"])} for x in sections],
+        "goal": goal,
+    }
 
 
 class GoalIn(BaseModel):
@@ -395,76 +410,61 @@ class GoalIn(BaseModel):
     grade_band: str
     focus: str
     objective: str
+    doc_questions: list[str] = []  # whole-document question ids the teacher kept on
 
 
-def _evidence_for(st, criterion: dict, goal: dict) -> tuple[list[dict], list[dict]]:
-    band = parse_band(goal["grade_band"]) or (None, None)
-    opts = service.SearchOptions(grade_min=band[0], grade_max=band[1], max_results=4)
-    res = service.search(f"{criterion['search_query']}. {goal['objective']}", st, options=opts)
-    excerpts = res["excerpts"]
-    return [{"cite_id": x["cite_id"], "text": x["text"]} for x in excerpts], excerpts
-
-
-def run_review(rid: str, goal: dict, criteria: list[dict]) -> None:
-    from concurrent.futures import ThreadPoolExecutor
-
-    state = REVIEWS[rid]
-    material = TEMP.get_json(rid, "material.json")
-    parts = material["parts"]
+def _review_deps() -> dict:
+    """Embed/search/Nova for the review threads; each thread gets its own clients."""
     local = threading.local()
 
-    def one(criterion: dict) -> dict:
+    def st():
         if not hasattr(local, "st"):
             local.st = service.Stores.local(ROOT)
-        st = local.st
-        base = {k: criterion[k] for k in ("criterion_id", "component", "question")}
-        try:
-            evidence, excerpts = _evidence_for(st, criterion, goal)
-            res = review.review_criterion(
-                criterion,
-                goal,
-                parts,
-                evidence,
-                lambda c, g, p, e, fb: review.call_review(c, g, p, e, st.bedrock, fb),
-            )
-        except Exception as e:  # one failed question shouldn't stop the review
-            res, excerpts = (
-                {"ok": False, "problems": [f"{type(e).__name__}: {e}"[:200]], "attempts": []},
-                [],
-            )
-        out = {**base, "ok": res["ok"], "attempts": res["attempts"], "research": excerpts}
-        if res["ok"]:
-            out["review"] = review.display(
-                res["result"],
-                parts,
-                [{"cite_id": x["cite_id"], "text": x["text"]} for x in excerpts],
-            )
-        else:
-            out["problems"] = res["problems"]
-        state["results"].append(out)
-        return out
+        return local.st
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(one, criteria))
-    order = {c["criterion_id"]: i for i, c in enumerate(criteria)}
-    state["results"].sort(key=lambda r: order[r["criterion_id"]])
-    state["state"] = "done"
-    TEMP.put_json(rid, "review.json", {"goal": goal, "results": state["results"]})
+    def search(query: str, goal: dict) -> list[dict]:
+        band = parse_band(goal["grade_band"]) or (None, None)
+        opts = service.SearchOptions(grade_min=band[0], grade_max=band[1], max_results=4)
+        return service.search(query, st(), options=opts)["excerpts"]
+
+    class Client:  # one bedrock-runtime client per thread
+        def converse(self, **kw):
+            return st().bedrock.converse(**kw)
+
+    return {"embed": lambda t: embed(t, st().bedrock), "search": search, "client": Client()}
+
+
+def run_review(rid: str, goal: dict, chosen_b: set[str]) -> None:
+    state = REVIEWS[rid]
+
+    def progress(**kw):
+        state.update(kw)
+
+    try:
+        material = TEMP.get_json(rid, "material.json")
+        checklist = review.load_checklist(CHECKLIST)
+        result = review_run.run(material, goal, chosen_b, checklist, _review_deps(), progress)
+        state.update(state="done", result=result)
+        TEMP.put_json(rid, "review.json", result)
+    except Exception as e:  # report the failure to the page
+        state.update(state="failed", error=f"{type(e).__name__}: {e}"[:300])
 
 
 @app.post("/api/review/{rid}/run")
 def api_review_run(rid: str, body: GoalIn):
     try:
         TEMP.path(rid, "material.json")
-    except KeyError:
+        inferred = TEMP.get_json(rid, "goal.json")
+    except (KeyError, FileNotFoundError):
         raise HTTPException(404, "review not found (material is deleted after 24 hours)") from None
     goal = review.clean_goal(body.model_dump())
+    goal["doc_questions"] = inferred.get("doc_questions", [])
     TEMP.put_json(rid, "goal.json", goal)
-    checklist = review.load_checklist(CHECKLIST)
-    criteria = review.applicable(checklist["criteria"], goal["grade_band"])
-    REVIEWS[rid] = {"state": "running", "total": len(criteria), "results": [], "goal": goal}
-    threading.Thread(target=run_review, args=(rid, goal, criteria), daemon=True).start()
-    return {"total": len(criteria)}
+    REVIEWS[rid] = {"state": "running", "phase": "Starting", "done": 0, "total": 0}
+    threading.Thread(
+        target=run_review, args=(rid, goal, set(body.doc_questions)), daemon=True
+    ).start()
+    return {"ok": True}
 
 
 @app.get("/api/review/{rid}")
@@ -473,11 +473,10 @@ def api_review_status(rid: str):
         material = TEMP.get_json(rid, "material.json")
     except (KeyError, FileNotFoundError):
         raise HTTPException(404, "review not found (material is deleted after 24 hours)") from None
-    state = REVIEWS.get(rid, {"state": "not started", "total": 0, "results": []})
+    state = REVIEWS.get(rid, {"state": "not started"})
     checklist = review.load_checklist(CHECKLIST)
     return {
         **state,
-        "done": len(state["results"]),
         "material": {"kind": material["kind"], "parts": material["parts"]},
         "checklist_status": checklist.get("status"),
         "checklist_note": checklist.get("note"),

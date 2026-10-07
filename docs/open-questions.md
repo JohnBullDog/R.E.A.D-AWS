@@ -40,7 +40,10 @@ Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against 
   of an answer's words are quoted, retry asking for more of its own words. Needs John's call.
 
 - Review checklist: DEVELOPMENT PLACEHOLDER. Addison must rewrite every question in
-  `rubric/checklist.json` (Checklist page) before teacher use.
+  `rubric/checklist.json` (Checklist page) before teacher use, and decide which questions are
+  whole-document, which are core, and each combine rule.
+- Review v2 tuning on real samples: triage thresholds (D64); the 'all' combine rule is strict
+  (a family letter in a unit pulled 'activities work toward the goal' to partly).
 - Review: the Mississippi-standards question sometimes fails validation (Nova reuses research
   wording without citing that section, on both attempts), and nothing yet checks that a
   suggestion is actually supported by the section it cites. Options later: auto-add the

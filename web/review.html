@@ -14,9 +14,9 @@
 </header>
 <main>
   <h1>Review teaching material</h1>
-  <p class="sub">Upload a lesson plan, worksheet, or slides. R.E.A.D. confirms your goal, then gives feedback on each checklist question with suggestions from the research.</p>
+  <p class="sub">Upload a lesson plan, unit, worksheet, or slides. R.E.A.D. confirms your goal, reviews each section, checks the whole document, and summarizes the takeaways with research behind them.</p>
 
-  <div class="disclaimer" id="devnote">
+  <div class="disclaimer">
     <strong>Development checklist.</strong> The review questions are placeholders written for development; Addison will rewrite them before any teacher use.
   </div>
   <div class="disclaimer">
@@ -41,7 +41,7 @@
   </section>
 
   <section id="step2" class="panel" hidden>
-    <h3>2. Confirm the goal</h3>
+    <h3>2. Confirm the goal and checks</h3>
     <p class="notice" id="goalSource"></p>
     <div class="grid">
       <label>Material type<input id="gType" type="text"></label>
@@ -51,11 +51,14 @@
     <label style="display:block;margin-top:10px" class="notice">Objective
       <textarea id="gObj" rows="2"></textarea>
     </label>
+    <h3 style="margin-top:16px">Whole-document checks</h3>
+    <p class="notice">Checked items are run across every section. Core checks always run; the others were judged relevant or not from your material, and you can change that.</p>
+    <div id="docQs"></div>
+    <details style="margin-top:10px"><summary class="notice">Sections found (<span id="secCount"></span>)</summary><ol id="secList" class="notice"></ol></details>
     <div class="row" style="margin-top:10px"><button id="runBtn">Run review</button><span id="runMsg" class="notice"></span></div>
   </section>
 
   <section id="step3" hidden>
-    <h2>Feedback <span class="kind">machine-generated</span></h2>
     <div class="notice" id="progress"></div>
     <div id="results"></div>
   </section>
@@ -70,7 +73,9 @@ const el = (tag, cls, text) => {
   return n;
 };
 let rid = null;
+let docQuestions = [];
 let materialParts = {};
+let research = {};
 
 async function call(method, url, body) {
   const r = await fetch(url, body instanceof FormData ? {method, body} :
@@ -98,9 +103,22 @@ $("up").addEventListener("submit", async (ev) => {
     rid = res.review_id;
     const g = res.goal;
     $("gType").value = g.material_type; $("gBand").value = g.grade_band; $("gFocus").value = g.focus; $("gObj").value = g.objective;
-    $("goalSource").textContent = `Read ${res.words.toLocaleString()} words (${res.kind}, ${res.parts} parts). ` +
+    $("goalSource").textContent = `Read ${res.words.toLocaleString()} words (${res.kind}) in ${res.sections.length} section${res.sections.length === 1 ? "" : "s"}. ` +
       ($("goalNote").value.trim() ? "Goal based on your note and the material; edit anything that's off." : "Goal inferred from the material; edit anything that's off.") +
       (g.inference_error ? " (Couldn't infer a goal automatically; please fill it in.)" : "");
+    docQuestions = g.doc_questions || [];
+    $("docQs").replaceChildren(...docQuestions.map((q) => {
+      const row = el("label", "check docq");
+      const cb = el("input");
+      cb.type = "checkbox"; cb.checked = q.relevant; cb.disabled = q.core; cb.dataset.id = q.id;
+      const text = el("span");
+      text.append(el("span", null, q.question + " "), el("span", "tag" + (q.core ? " ok" : ""), q.core ? "core" : (q.relevant ? "relevant" : "skipped")),
+        el("span", "notice", " " + (q.reason || "")));
+      row.append(cb, text);
+      return row;
+    }));
+    $("secCount").textContent = res.sections.length;
+    $("secList").replaceChildren(...res.sections.map((s) => el("li", null, `${s.title} (${s.parts} parts)`)));
     $("step2").hidden = false;
     $("upMsg").textContent = "";
   } catch (e) {
@@ -115,17 +133,19 @@ $("runBtn").addEventListener("click", async () => {
   $("runBtn").disabled = true;
   $("runMsg").textContent = "";
   try {
-    const goal = {material_type: $("gType").value, grade_band: $("gBand").value, focus: $("gFocus").value, objective: $("gObj").value};
-    const {total} = await call("POST", `/api/review/${rid}/run`, goal);
+    const kept = [...document.querySelectorAll("#docQs input:checked")].map((c) => c.dataset.id);
+    const goal = {material_type: $("gType").value, grade_band: $("gBand").value, focus: $("gFocus").value,
+                  objective: $("gObj").value, doc_questions: kept};
+    await call("POST", `/api/review/${rid}/run`, goal);
     $("step3").hidden = false;
     $("results").replaceChildren();
-    $("progress").textContent = `Reviewing ${total} checklist questions…`;
     while (true) {
       await new Promise((r) => setTimeout(r, 1500));
       const st = await call("GET", `/api/review/${rid}`);
       materialParts = Object.fromEntries(st.material.parts.map((p) => [p.id, p]));
-      $("progress").textContent = st.state === "done" ? `${st.total} questions reviewed. ${st.disclaimer}` : `Reviewed ${st.done} of ${st.total}…`;
-      if (st.state === "done") { renderResults(st.results); break; }
+      if (st.state === "failed") { $("progress").textContent = ""; $("progress").append(el("span", "err", "The review failed: " + st.error)); break; }
+      if (st.state === "done") { renderResults(st.result, st.disclaimer); break; }
+      $("progress").textContent = `${st.phase || "Working"}… ${st.total ? `${st.done} of ${st.total}` : ""}`;
     }
   } catch (e) {
     $("runMsg").append(el("span", "err", e.message));
@@ -134,7 +154,8 @@ $("runBtn").addEventListener("click", async () => {
   }
 });
 
-const SEEN = {yes: ["Seen in material", "ok"], partly: ["Partly seen", "warn"], no: ["Not seen", "warn"]};
+const SEEN = {yes: ["Seen", "ok"], partly: ["Partly seen", "warn"], no: ["Not seen", "warn"]};
+const VERDICT = {met: ["Met", "ok"], partly: ["Partly met", "warn"], missing: ["Missing", "bad"]};
 
 function quoteOf(x) {
   const quote = el("blockquote");
@@ -149,29 +170,16 @@ function quoteOf(x) {
   return quote;
 }
 
-function sentenceLine(s, card, research) {
-  const p = el("p", "answertext");
-  for (const part of s.parts) {
-    if (part.quote != null) {
-      const q = el("q", "vquote", part.quote);
-      q.title = part.cite.startsWith("M") ? "Exact words from your material" : "Exact words from the research (verified)";
-      p.append(q);
-    } else p.append(part.text);
-  }
-  for (const m of s.material) p.append(" ", chip(`Part ${m.slice(1)}`, "chip mat", () => toggle(card, "m-" + m, () => materialCard(m))));
-  for (const c of s.cites) p.append(" ", chip(c.slice(1), "chip", () => toggle(card, "s-" + c, () => researchCard(research, c))));
-  return p;
-}
-
-function chip(label, cls, onClick) {
+function chip(label, cls, onClick, title) {
   const b = el("button", cls, label);
   b.type = "button";
+  if (title) b.title = title;
   b.addEventListener("click", onClick);
   return b;
 }
 
 function toggle(card, key, make) {
-  const tray = card.querySelector(".reftray");
+  const tray = card.querySelector(":scope > .reftray");
   const open = tray.querySelector(`[data-key="${CSS.escape(key)}"]`);
   if (open) { open.remove(); return; }
   const c = make();
@@ -185,8 +193,8 @@ function materialCard(m) {
   return box;
 }
 
-function researchCard(research, c) {
-  const x = research.find((r) => r.cite_id === c);
+function researchCard(c) {
+  const x = research[c];
   const box = el("article", "panel refcard");
   if (!x) return box;
   box.append(el("strong", null, x.label), el("div", "where", [x.title, x.section_path].filter(Boolean).join(" › ")),
@@ -194,35 +202,95 @@ function researchCard(research, c) {
   return box;
 }
 
-function renderResults(results) {
+function flashTo(id) {
+  const t = $(id);
+  if (!t) return;
+  t.scrollIntoView({behavior: "smooth", block: "center"});
+  t.classList.add("flash");
+  setTimeout(() => t.classList.remove("flash"), 1400);
+}
+
+function sentenceLine(s, card) {
+  const p = el("p", "answertext");
+  for (const part of s.parts) {
+    if (part.quote != null) {
+      const q = el("q", "vquote", part.quote);
+      q.title = part.cite.startsWith("M") ? "Exact words from your material" : "Exact words from the research (verified)";
+      p.append(q);
+    } else p.append(part.text);
+  }
+  for (const m of s.material || []) p.append(" ", chip(`Part ${m.slice(1)}`, "chip mat", () => toggle(card, "m-" + m, () => materialCard(m))));
+  for (const r of s.refs || []) p.append(" ", chip(r, "chip ref", () => flashTo("card-" + r), r.startsWith("F") ? "Go to this finding" : "Go to this whole-document check"));
+  for (const c of s.cites || []) p.append(" ", chip(c.slice(1), "chip", () => toggle(card, "s-" + c, () => researchCard(c)), (research[c] || {}).label));
+  return p;
+}
+
+function block(card, heading, sents) {
+  if (!sents.length) return;
+  card.append(el("div", "kind", heading));
+  sents.forEach((s) => card.append(sentenceLine(s, card)));
+}
+
+function renderResults(r, disclaimer) {
+  research = r.research || {};
+  const st = r.stats;
+  $("progress").textContent = `Reviewed ${st.sections} section${st.sections === 1 ? "" : "s"} in ${st.seconds} s with ${st.model_calls} model calls. ${disclaimer}`;
   const box = $("results");
   box.replaceChildren();
-  const groups = {};
-  for (const r of results) (groups[r.component] = groups[r.component] || []).push(r);
-  for (const [component, items] of Object.entries(groups)) {
-    box.append(el("h3", "group", component));
-    for (const r of items) {
+
+  box.append(el("h2", null, "Summary"), el("div", "kind", "machine-generated"));
+  const sum = el("article", "panel answer");
+  if (r.summary.ok) sum.append(...r.summary.takeaways.map((t) => sentenceLine(t, sum)));
+  else sum.append(el("p", "err", "A summary couldn't be generated; the checks and sections below are complete."));
+  sum.append(el("div", "reftray"));
+  box.append(sum);
+
+  if (r.document.length) {
+    box.append(el("h2", null, "Whole-document checks"));
+    if (!r.document_ok) box.append(el("p", "err", "Whole-document feedback couldn't be generated; the per-section answers are shown."));
+    for (const d of r.document) {
       const card = el("article", "panel");
+      if (d.id) card.id = "card-" + d.id;
       const head = el("div", "row");
-      head.append(el("strong", null, r.question));
+      head.append(el("strong", null, d.question));
+      const verdict = d.verdict || d.status;
+      if (verdict) { const [lab, cls] = VERDICT[verdict]; head.append(el("span", "tag " + cls, lab)); }
+      if (d.core) head.append(el("span", "tag", "core"));
+      if (d.id) head.append(el("span", "notice", d.id));
       card.append(head);
-      if (!r.ok) {
-        card.append(el("p", "err", "Feedback couldn't be generated for this question."));
-      } else {
-        const v = r.review;
-        const [label, cls] = v.applies ? SEEN[v.seen] : ["Not applicable", ""];
-        head.append(el("span", "tag " + cls, label));
-        card.append(el("div", "kind", "What the material does"));
-        v.observation.forEach((s) => card.append(sentenceLine(s, card, r.research)));
-        if (v.suggestions.length) {
-          card.append(el("div", "kind", "What the research suggests"));
-          v.suggestions.forEach((s) => card.append(sentenceLine(s, card, r.research)));
-        }
-      }
-      const tray = el("div", "reftray");
-      card.append(tray);
+      if (d.observation) { block(card, "Across the material", d.observation); block(card, "What the research suggests", d.suggestions); }
+      const per = el("details");
+      per.append(el("summary", "notice", "Answers by section"),
+        ...d.answers.map((a) => el("div", "notice", `${a.section}: ${a.answer === "unanswered" ? "not answered (left out)" : a.answer}${a.note && a.answer !== "unanswered" ? " — " + a.note : ""}`)));
+      card.append(per, el("div", "reftray"));
       box.append(card);
     }
+  }
+  if (r.skipped_document_questions.length) box.append(el("p", "notice", "Skipped as not relevant: " + r.skipped_document_questions.join(", ")));
+
+  box.append(el("h2", null, "Sections"));
+  for (const s of r.sections) {
+    const card = el("article", "panel");
+    card.append(el("h3", "group", s.title));
+    const text = el("details");
+    text.append(el("summary", "notice", "Show this section's text"),
+      ...s.parts.map((m) => el("p", "notice", `${m.slice(1)}. ${(materialParts[m] || {}).text || ""}`)));
+    card.append(text);
+    if (!s.ok) card.append(el("p", "err", "Feedback couldn't be generated for this section."));
+    else if (!s.findings.length) card.append(el("p", "notice", "No section questions applied here."));
+    for (const f of s.findings) {
+      const fc = el("div", "finding");
+      fc.id = "card-" + f.id;
+      const head = el("div", "row");
+      const [lab, cls] = SEEN[f.seen];
+      head.append(el("strong", null, f.question), el("span", "tag " + cls, lab), el("span", "notice", f.id));
+      fc.append(head);
+      block(fc, "What this section does", f.observation);
+      block(fc, "What the research suggests", f.suggestions);
+      fc.append(el("div", "reftray"));
+      card.append(fc);
+    }
+    box.append(card);
   }
 }
 </script>

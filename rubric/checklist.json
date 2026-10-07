@@ -1,77 +1,133 @@
 {
   "status": "DEVELOPMENT PLACEHOLDER",
-  "note": "These review questions were drafted by Claude for development and testing only. They must be rewritten by Addison Robertson (subject-matter expert) before any teacher use. Do not treat them as validated guidance.",
+  "note": "These review questions were drafted by Claude for development and testing only. They must be rewritten by Addison Robertson (subject-matter expert) before any teacher use. Do not treat them as validated guidance. Which questions are whole-document questions, and which of those are core (always run), is also Addison's call.",
   "owner": "Addison Robertson (SME), pending rewrite",
-  "version": "dev-0.1",
+  "version": "dev-0.2",
   "criteria": [
     {
-      "criterion_id": "goal-clear-objective",
-      "component": "Planning",
-      "grade_band": "K-5",
-      "question": "Does the material state what students will learn or be able to do, in a way the teacher could check?",
-      "search_query": "clear learning objective for reading instruction lesson goals"
-    },
-    {
       "criterion_id": "oral-academic-language",
+      "scope": "section",
       "component": "Oral and academic language",
       "grade_band": "K-3",
-      "question": "Does the material build academic language, such as vocabulary, inferential talk, or retelling events in order?",
+      "question": "Does this part build academic language, such as vocabulary, inferential talk, or retelling events in order?",
       "search_query": "teach academic language inferential narrative language vocabulary"
     },
     {
       "criterion_id": "phonological-awareness",
+      "scope": "section",
       "component": "Phonological awareness",
       "grade_band": "K-1",
-      "question": "Does the material help students hear and work with the sounds in spoken words, and connect those sounds to letters?",
+      "question": "Does this part help students hear and work with the sounds in spoken words, and connect those sounds to letters?",
       "search_query": "phonemic awareness segment blend sounds link to letters"
     },
     {
       "criterion_id": "decoding-word-analysis",
+      "scope": "section",
       "component": "Phonics and decoding",
       "grade_band": "K-3",
-      "question": "Does the material teach students to decode words and recognize common spelling patterns or word parts?",
+      "question": "Does this part teach students to decode words and recognize common spelling patterns or word parts?",
       "search_query": "teach students to decode words analyze word parts sound-spelling patterns"
     },
     {
-      "criterion_id": "explicit-systematic",
-      "component": "Phonics and decoding",
+      "criterion_id": "explicit-modeling",
+      "scope": "section",
+      "component": "Instruction",
       "grade_band": "K-5",
-      "question": "Is new skill instruction explicit (modeled by the teacher) and part of a planned sequence?",
-      "search_query": "explicit systematic phonics instruction modeling"
+      "question": "Is the new skill in this part modeled by the teacher before students practice it?",
+      "search_query": "explicit instruction teacher modeling before practice"
     },
     {
       "criterion_id": "connected-text-fluency",
+      "scope": "section",
       "component": "Fluency",
       "grade_band": "K-5",
-      "question": "Do students read connected text with support, such as reading aloud with feedback or repeated reading?",
+      "question": "Do students read connected text with support here, such as reading aloud with feedback or repeated reading?",
       "search_query": "read connected text daily guided oral reading feedback fluency"
     },
     {
-      "criterion_id": "comprehension-purpose",
+      "criterion_id": "comprehension",
+      "scope": "section",
       "component": "Comprehension",
       "grade_band": "K-5",
-      "question": "Does the material help students read for meaning, such as checking understanding or discussing the text?",
+      "question": "Does this part help students read for meaning, such as checking understanding or discussing the text?",
       "search_query": "reading for understanding comprehension monitor meaning"
     },
     {
       "criterion_id": "practice-and-feedback",
+      "scope": "section",
       "component": "Instruction",
       "grade_band": "K-5",
-      "question": "Are there chances for students to practice with the teacher giving prompts, scaffolds, or corrective feedback?",
+      "question": "Do students practice here with the teacher giving prompts, scaffolds, or corrective feedback?",
       "search_query": "guided practice scaffolding corrective feedback word reading"
     },
     {
-      "criterion_id": "check-progress",
+      "criterion_id": "doc-objective",
+      "scope": "document",
+      "core": true,
+      "combine": "any",
+      "component": "Planning",
+      "grade_band": "K-5",
+      "question": "Does the material state what students will learn, in a way the teacher could check?",
+      "search_query": "clear learning objective for reading instruction lesson goals"
+    },
+    {
+      "criterion_id": "doc-alignment",
+      "scope": "document",
+      "core": true,
+      "combine": "all",
+      "component": "Planning",
+      "grade_band": "K-5",
+      "question": "Do the activities work toward the stated goal?",
+      "search_query": "align instruction and activities to the learning goal"
+    },
+    {
+      "criterion_id": "doc-sequence",
+      "scope": "document",
+      "core": false,
+      "combine": "judge",
+      "component": "Planning",
+      "grade_band": "K-5",
+      "question": "Does the material build skills in a planned order, simple to complex?",
+      "search_query": "systematic sequence of instruction simple to complex skills"
+    },
+    {
+      "criterion_id": "doc-check-learning",
+      "scope": "document",
+      "core": true,
+      "combine": "any",
       "component": "Assessment",
       "grade_band": "K-5",
-      "question": "Does the material include a way to see whether students learned the skill?",
+      "question": "Does the material check whether students learned the skill?",
       "search_query": "assess student progress monitor reading skills"
     },
     {
-      "criterion_id": "ms-standards",
+      "criterion_id": "doc-support",
+      "scope": "document",
+      "core": false,
+      "combine": "any",
+      "component": "Differentiation",
+      "grade_band": "K-5",
+      "question": "Does the material plan support for students who need extra help or challenge?",
+      "search_query": "small group instruction support struggling readers differentiation"
+    },
+    {
+      "criterion_id": "doc-practice-time",
+      "scope": "document",
+      "core": false,
+      "combine": "judge",
+      "component": "Instruction",
+      "grade_band": "K-5",
+      "question": "Do students get enough time actively practicing the target skill?",
+      "search_query": "daily practice time active student practice reading skills"
+    },
+    {
+      "criterion_id": "doc-ms-standards",
+      "scope": "document",
+      "core": false,
+      "combine": "any",
       "component": "Mississippi standards",
       "grade_band": "K-5",
-      "question": "Which Mississippi College- and Career-Readiness Standards for English Language Arts does the material address for this grade?",
+      "question": "Which Mississippi ELA standards for this grade does the material address as a whole?",
       "search_query": "Mississippi College and Career Readiness Standards English Language Arts foundational skills grade"
     }
   ]

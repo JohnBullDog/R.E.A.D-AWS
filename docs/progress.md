@@ -2,6 +2,22 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-07 — Session 2g: material review v2 built
+
+**Done (D62-D67)**: `src/read/review.py` rewritten for v2 (sections, triage, goal + whole-
+document relevance, per-section call, combine, summary, validators, output normalizing),
+`src/read/review_run.py` (pipeline), checklist v2 (two scoped lists, still placeholders),
+server routes, Review page (whole-document toggles on the confirm step; summary, whole-document
+panel, section cards), Checklist page edits scope / core / combine. 136 unit tests pass.
+
+**Live runs** (synthetic 1,531-word kindergarten unit, 9 sections; about 6 runs, roughly
+60-90 cents total): problems found and fixed in order: headings on the line above a paragraph
+weren't detected; a Bedrock malformed-output error crashed the review; 4 of 9 sections failed
+validation; triage excluded explicit modeling; skipped whole-document answers counted as 'none';
+the combine call filled only 1 of 7 entries; IDs written into summary prose. Final run: all 9
+sections, all 7 whole-document checks, and the summary passed on the first try; 18 model calls,
+about 62 s. The page renders all three result panels (checked in Chrome).
+
 ## 2026-10-07 — Session 2f: material review feature
 
 **Done (D56-D61)**: `src/read/review.py` (goal inference, per-question review, validation,

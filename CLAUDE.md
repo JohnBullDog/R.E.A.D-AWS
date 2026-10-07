@@ -122,7 +122,8 @@ scripts/setup_opensearch.py  collection policies, index mapping, hybrid-norm pip
 scripts/eval.py           runs the golden set, reports recall@8 and MRR
 corpus/                   source files + meta.json sidecars (sources not committed if large)
 eval/golden.jsonl         golden questions with expected section IDs (owned by Addison)
-rubric/checklist.json     review questions: DEVELOPMENT PLACEHOLDER, to be rewritten by Addison
+rubric/checklist.json     review questions (section + whole-document): DEVELOPMENT PLACEHOLDER,
+                          to be rewritten by Addison
 web/index.html            teacher Q&A page (Test)
 web/review.html           material review page; web/checklist.html edits the checklist
 web/sources.html          ingest and manage sources

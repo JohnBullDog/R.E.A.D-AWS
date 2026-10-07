@@ -44,6 +44,24 @@ function field(label, value, key, row, wide) {
   return l;
 }
 
+function select(label, value, key, row, options) {
+  const l = el("label", null, label);
+  const s = el("select");
+  for (const [v, t] of options) {
+    const o = el("option", null, t);
+    o.value = v;
+    s.append(o);
+  }
+  s.value = value || options[0][0];
+  row[key] = s.value;
+  s.addEventListener("change", () => {
+    row[key] = s.value;
+    if (key === "scope") { if (s.value === "document") { row.combine = row.combine || "any"; } render(); }
+  });
+  l.append(s);
+  return l;
+}
+
 function render() {
   $("status").textContent = (data.status || "") + ".";
   $("note").textContent = data.note || "";
@@ -51,7 +69,18 @@ function render() {
     const card = el("div", "panel");
     const g = el("div", "grid");
     g.append(field("ID", c.criterion_id, "criterion_id", c), field("Component", c.component, "component", c),
-      field("Grade band", c.grade_band, "grade_band", c));
+      field("Grade band", c.grade_band, "grade_band", c),
+      select("Scope", c.scope, "scope", c, [["section", "Section (asked per section)"], ["document", "Whole document"]]));
+    if (c.scope === "document") {
+      g.append(select("Combine sections", c.combine, "combine", c,
+        [["any", "Met if any section does it"], ["all", "Met only if every section does"], ["judge", "Model judges from the answers"]]));
+      const core = el("label", "check");
+      const cb = el("input");
+      cb.type = "checkbox"; cb.checked = !!c.core;
+      cb.addEventListener("change", () => { c.core = cb.checked; });
+      core.append(cb, document.createTextNode(" Core (always runs)"));
+      g.append(core);
+    }
     const del = el("button", "danger small", "Remove");
     del.type = "button";
     del.addEventListener("click", () => { data.criteria.splice(i, 1); render(); });
@@ -61,7 +90,7 @@ function render() {
 }
 
 $("add").addEventListener("click", () => {
-  data.criteria.push({criterion_id: "new-question-" + (data.criteria.length + 1), component: "", grade_band: "K-5", question: "", search_query: ""});
+  data.criteria.push({criterion_id: "new-question-" + (data.criteria.length + 1), scope: "section", component: "", grade_band: "K-5", question: "", search_query: ""});
   render();
 });
 
