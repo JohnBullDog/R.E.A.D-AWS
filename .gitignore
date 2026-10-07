@@ -5,8 +5,7 @@ __pycache__/
 .ruff_cache/
 .aws-sam/
 samconfig.toml
-# large source files stay out of git; meta.json sidecars are committed
-corpus/*
-!corpus/*.meta.json
+# source files and their license sign-offs are local-only (approved for local use)
+corpus/
 # local canonical text from scripts/ingest.py --local
 data/
