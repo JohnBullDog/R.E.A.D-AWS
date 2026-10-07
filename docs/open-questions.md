@@ -49,6 +49,10 @@ Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against 
   suggestion is actually supported by the section it cites. Options later: auto-add the
   citation for reused wording; a support check on the golden set.
 
+- Review v2 whole-document verdicts are unreliable (digraph-unit test, 2026-10-07): goal leaks
+  into the material, 'any' combine rule, no material citation required, sectioning ignores
+  heading levels. Five fixes proposed in `docs/handoff.md`; need John's go-ahead.
+
 ## Needs John (not decisions)
 - License verification for the 4 placeholders (John or Addison): check each source's terms,
   then fill in `license`, `license_verified_by` (your name) and `license_verified_on`

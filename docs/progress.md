@@ -2,6 +2,15 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-07 — Session 2h: review v2 tested on a new file; session hand-off
+
+**Tested** review v2 on a synthetic 1st-grade digraph unit (DOCX, 1,570 words, 15 sections,
+26 calls, 78 s, about 20 cents). Runs cleanly, but the whole-document checks rated a missing
+objective, a missing learning check, and thin support as 'met'. Causes: the teacher's goal leaks
+into the material, the 'any' combine rule, whole-document answers need no material citation;
+sectioning ignores Word heading levels. Five fixes proposed, not started. Details and next
+steps: `docs/handoff.md`.
+
 ## 2026-10-07 — Session 2g: material review v2 built
 
 **Done (D62-D67)**: `src/read/review.py` rewritten for v2 (sections, triage, goal + whole-
