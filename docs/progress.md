@@ -2,6 +2,19 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-07 — Session 2b: answers failing the copy check on real research
+
+**Found**: John hit "answer couldn't be generated" (Nova copied 8-word phrases from 3 sections).
+Root cause beyond Nova's habit: the retry repeated the identical temperature-0 request, so it
+could never succeed. John signed off WWC, NRP, MS CCRS 2025, and 2016 (superseded) in the GUI.
+
+**Fixed (D49)**: the retry now includes the rejected sentences and the quoted copied stretches.
+Debug panel shows every attempt. 91 unit tests pass; dev server restarted.
+
+**Verified live (8 real teacher questions, about 8 cents)**: 3 passed first try, 4 rescued by
+the retry, 1 declined ("How often should I assess progress?"; may be a real gap in these
+sources), 0 failed. Answer time 2-9 s including search.
+
 ## 2026-10-07 — Session 2a: local web GUI
 
 **Done**

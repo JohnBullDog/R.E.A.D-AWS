@@ -25,6 +25,9 @@ Oct 6, 2026 · @John Patton
 >   deleted afterward. Spend cap: $10/month without explicit approval.
 > - **R8 Reranker:** Amazon Rerank 1.0 in us-west-2 (it isn't offered in us-east-1), per the
 >   AWS-model requirement. Cohere Rerank is not used.
+> - **R9 Retry with feedback:** the single retry after a failed validation includes the rejected
+>   sentences and the problems (e.g. the copied phrase), since a temperature-0 retry with the same
+>   prompt repeats the same answer.
 > - **R7 Declines:** an unanswerable result may have no sentences; the page shows a fixed
 >   decline message written in code.
 

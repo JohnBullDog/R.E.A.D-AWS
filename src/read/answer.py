@@ -55,12 +55,17 @@ def prompt_blocks(query: str, evidence: list[dict]) -> str:
     return f"{blocks}\n\nQuery: {query}"
 
 
-def call_model(query: str, evidence: list[dict], client) -> dict:
-    """One Converse call forced to the record_answer tool; returns the tool input."""
+def call_model(query: str, evidence: list[dict], client, feedback: str | None = None) -> dict:
+    """One Converse call forced to the record_answer tool; returns the tool input.
+
+    feedback (on a retry) tells the model why its previous answer was rejected; without it a
+    temperature-0 retry would just repeat the same answer.
+    """
+    text = prompt_blocks(query, evidence) + (f"\n\n{feedback}" if feedback else "")
     resp = client.converse(
         modelId=os.environ["ANSWER_MODEL_ID"],
         system=[{"text": SYSTEM}],
-        messages=[{"role": "user", "content": [{"text": prompt_blocks(query, evidence)}]}],
+        messages=[{"role": "user", "content": [{"text": text}]}],
         inferenceConfig={"temperature": 0, "maxTokens": MAX_TOKENS},
         toolConfig={
             "tools": [
@@ -86,6 +91,19 @@ def ngrams(s: str, n: int = NGRAM) -> set[tuple[str, ...]]:
     """Word n-grams, case- and punctuation-insensitive."""
     w = WORD.findall(s.lower())
     return {tuple(w[i : i + n]) for i in range(len(w) - n + 1)}
+
+
+def copied_runs(sentence: str, section_grams: set[tuple[str, ...]], n: int = NGRAM) -> list[str]:
+    """Stretches of the sentence that repeat a section, longest first (n-grams merged)."""
+    w = WORD.findall(sentence.lower())
+    hits = [i for i in range(len(w) - n + 1) if tuple(w[i : i + n]) in section_grams]
+    runs: list[tuple[int, int]] = []
+    for i in hits:
+        if runs and i <= runs[-1][1]:
+            runs[-1] = (runs[-1][0], i + n)
+        else:
+            runs.append((i, i + n))
+    return sorted((" ".join(w[a:b]) for a, b in runs), key=len, reverse=True)
 
 
 def validate(out: dict, evidence: list[dict]) -> list[str]:
@@ -122,7 +140,8 @@ def validate(out: dict, evidence: list[dict]) -> list[str]:
             if not isinstance(c, str) or not CITE.match(c) or c not in allowed:
                 problems.append(f"sentence {i} cites unknown {c!r}")
             elif grams & allowed[c]:
-                problems.append(f"sentence {i} copies text from {c}")
+                phrase = copied_runs(s["text"], allowed[c])[0]
+                problems.append(f'sentence {i} copies text from {c}: "{phrase}"')
     return problems
 
 
@@ -148,26 +167,53 @@ def cap_strength(out: dict, evidence: list[dict], works: dict[str, dict]) -> tup
     return flag, []
 
 
+def retry_feedback(out: dict | None, problems: list[str]) -> str:
+    """What the model is told on the retry: its rejected sentences and why."""
+    lines = ["Your previous answer was rejected by an automatic check."]
+    if isinstance(out, dict) and isinstance(out.get("sentences"), list):
+        lines.append("Previous answer:")
+        lines += [
+            f"{k}. {s.get('text', '')}"
+            for k, s in enumerate(out["sentences"])
+            if isinstance(s, dict)
+        ]
+    lines.append("Problems:")
+    lines += [f"- {p}" for p in problems]
+    lines.append(
+        f"Write the whole answer again. Restate every idea in your own words and sentence "
+        f"structure; do not reuse any quoted phrase above or any {NGRAM} consecutive words from "
+        "a section. Follow all the other rules."
+    )
+    return "\n".join(lines)
+
+
 def cited_answer(
     query: str,
     evidence: list[dict],
     works: dict[str, dict],
-    model: Callable[[str, list[dict]], dict],
+    model: Callable[[str, list[dict], str | None], dict],
     attempts: int = 2,
 ) -> dict:
-    """Ask the model, validate, retry once; on a second failure return the error state.
+    """Ask the model, validate, retry once with feedback; on a second failure return the error
+    state.
 
-    Returns {"ok": True, "answer": out, "evidence_strength": flag, "strength_capped_by": [...]}
-    or {"ok": False, "error": "answer_unavailable", "problems": [...]}.
+    Returns {"ok": True, "answer": out, "evidence_strength": flag, "strength_capped_by": [...],
+    "attempts": [...]} or {"ok": False, "error": "answer_unavailable", "problems": [...],
+    "attempts": [...]}; each attempt records its problems and raw output for debugging.
     """
     problems: list[str] = []
-    for _ in range(attempts):
+    out = None
+    tried: list[dict] = []
+    for n in range(attempts):
+        feedback = retry_feedback(out, problems) if n else None
         try:
-            out = model(query, evidence)
+            out = model(query, evidence, feedback)
         except ValueError as exc:
-            problems = [str(exc)]
+            out, problems = None, [str(exc)]
+            tried.append({"problems": problems, "output": None})
             continue
         problems = validate(out, evidence)
+        tried.append({"problems": problems, "output": out})
         if not problems:
             flag, capped_by = cap_strength(out, evidence, works)
             return {
@@ -175,5 +221,6 @@ def cited_answer(
                 "answer": out,
                 "evidence_strength": flag,
                 "strength_capped_by": capped_by,
+                "attempts": tried,
             }
-    return {"ok": False, "error": "answer_unavailable", "problems": problems}
+    return {"ok": False, "error": "answer_unavailable", "problems": problems, "attempts": tried}

@@ -223,7 +223,7 @@ def answer(q: str, refs: list[dict], st: Stores, debug: bool = False) -> dict:
     }
     if not evidence:
         return {**out, **no_answer, "omitted": omitted}
-    res = cited_answer(q, evidence, works, lambda qq, ev: call_model(qq, ev, st.bedrock))
+    res = cited_answer(q, evidence, works, lambda qq, ev, fb: call_model(qq, ev, st.bedrock, fb))
     cite_map = {e["cite_id"]: e["section"]["section_id"] for e in evidence}
     labels = {
         e["cite_id"]: cite_label(e["section"], works[e["section"]["work_id"]]) for e in evidence
@@ -245,7 +245,6 @@ def answer(q: str, refs: list[dict], st: Stores, debug: bool = False) -> dict:
         out["debug"] = {
             "model": os.environ.get("ANSWER_MODEL_ID"),
             "timing_s": round(time.perf_counter() - t0, 2),
-            "validation_problems": res.get("problems", []),
-            "raw": res.get("answer"),
+            "attempts": res.get("attempts", []),
         }
     return out

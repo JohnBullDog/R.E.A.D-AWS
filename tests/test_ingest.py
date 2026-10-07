@@ -39,11 +39,19 @@ def test_license_gate_needs_all_three_fields_and_a_real_date():
     assert not license_ok({**VERIFIED, "license_verified_on": None})
 
 
-def test_placeholder_drafts_never_pass_the_gate():
+def test_claude_drafts_never_pass_the_gate():
+    draft = {
+        **GOOD,
+        "license": "DRAFT, unverified: public domain",
+        "license_verified_by": "",
+        "license_verified_on": "",
+    }
+    assert not license_ok(draft)
+
+
+def test_corpus_meta_files_are_valid():
     for f in Path("corpus").glob("*.meta.json"):
-        meta = json.loads(f.read_text(encoding="utf-8"))
-        assert check_meta(meta) == [], f
-        assert not license_ok(meta), f
+        assert check_meta(json.loads(f.read_text(encoding="utf-8"))) == [], f
 
 
 def test_version_id_is_stable_per_content():

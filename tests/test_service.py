@@ -65,7 +65,7 @@ GOOD = {
 def fake_model(monkeypatch, out=GOOD):
     seen = []
 
-    def call(q, ev, client):
+    def call(q, ev, client, feedback=None):
         seen.append([e["text"] for e in ev])
         return out
 
