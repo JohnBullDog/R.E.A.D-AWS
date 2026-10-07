@@ -2,6 +2,18 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-07 — Session 2c: search options
+
+**Done**: Test page gets a grade range (Pre-K to 12) and max results (1-15), plus a collapsed
+"Advanced search options" panel (minimum relevance score, candidate pool, keyword vs. meaning
+weight, reranker on/off). Excerpt cards show the source's grade band. Debug shows the options
+used, sources in the grade range, and how many passages fell below the minimum score.
+
+**Verified**: 96 unit tests pass. Live API on the 3 active sources: grades 4-5 drops WWC (K-3);
+max results 3 returns 3; reranker off changes order; keyword weight 0.9 works through a one-off
+pipeline; min score 0.5 removes everything with the reranker on (scores are tiny) but keeps 2
+with it off. Controls checked in Chrome (dark mode).
+
 ## 2026-10-07 — Session 2b: answers failing the copy check on real research
 
 **Found**: John hit "answer couldn't be generated" (Nova copied 8-word phrases from 3 sections).

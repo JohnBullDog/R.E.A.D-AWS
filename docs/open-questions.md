@@ -34,6 +34,10 @@ Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against 
 - The NRP placeholder is the ERIC scan of the summary report; its cover page text is garbled
   (old OCR). The body text is fine.
 
+- Grade tags are per source, so a K-12 source (NRP, MS standards) matches every grade range.
+  If grade filtering matters for teachers, sections would need their own grade tags (e.g.
+  the MS standards have a grade per section).
+
 ## Needs John (not decisions)
 - License verification for the 4 placeholders (John or Addison): check each source's terms,
   then fill in `license`, `license_verified_by` (your name) and `license_verified_on`

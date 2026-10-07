@@ -88,6 +88,13 @@ def style():
 class SearchIn(BaseModel):
     query: str
     debug: bool = False
+    grade_min: int | None = None
+    grade_max: int | None = None
+    max_results: int = 8
+    min_score: float = 0.0
+    candidates: int = 40
+    use_reranker: bool = True
+    keyword_weight: float = 0.3
 
 
 class AnswerIn(BaseModel):
@@ -98,7 +105,10 @@ class AnswerIn(BaseModel):
 
 @app.post("/api/search")
 def api_search(body: SearchIn):
-    return service.search(body.query, STORES, debug=body.debug)
+    opts = service.SearchOptions(
+        **body.model_dump(exclude={"query", "debug"}),
+    )
+    return service.search(body.query, STORES, debug=body.debug, options=opts)
 
 
 @app.post("/api/answer")

@@ -17,10 +17,43 @@
   <p class="sub">Answers come only from the research excerpts shown. This is the teacher view; turn on debug for scores and timings.</p>
 
   <div class="panel">
-    <form id="ask" class="row">
-      <input id="q" class="grow" type="text" maxlength="500" placeholder="e.g. How should I teach phonemic awareness in kindergarten?" autocomplete="off">
-      <button id="go" type="submit">Ask</button>
-      <label class="check"><input id="dbg" type="checkbox"> Debug</label>
+    <form id="ask">
+      <div class="row">
+        <input id="q" class="grow" type="text" maxlength="500" placeholder="e.g. How should I teach phonemic awareness in kindergarten?" autocomplete="off">
+        <button id="go" type="submit">Ask</button>
+        <label class="check"><input id="dbg" type="checkbox"> Debug</label>
+      </div>
+      <div class="row options">
+        <label class="opt">Grades
+          <select id="gMin" aria-label="From grade"></select>
+          <span class="notice">to</span>
+          <select id="gMax" aria-label="To grade"></select>
+        </label>
+        <label class="opt">Max results
+          <input id="maxRes" type="number" min="1" max="15" value="8">
+        </label>
+        <button id="reset" type="button" class="ghost small">Reset</button>
+      </div>
+      <details id="adv">
+        <summary>Advanced search options</summary>
+        <div class="grid adv">
+          <label>Minimum relevance score
+            <input id="minScore" type="number" min="0" max="1" step="0.0001" value="0">
+            <span class="hint">0 = off. With the reranker on, Amazon Rerank scores are often below 0.01 even for good matches.</span>
+          </label>
+          <label>Candidate passages searched
+            <input id="cands" type="number" min="10" max="100" step="10" value="40">
+            <span class="hint">How many passages hybrid search hands to ranking (10–100).</span>
+          </label>
+          <label>Keyword vs. meaning weight: <output id="kwOut">0.30</output>
+            <input id="kw" type="range" min="0" max="1" step="0.05" value="0.3">
+            <span class="hint">0 = meaning only, 1 = exact keywords only. Default 0.30.</span>
+          </label>
+          <label class="check"><input id="rr" type="checkbox" checked> Use reranker (Amazon Rerank)
+            <span class="hint">Off = order by hybrid search score; scores are then 0–1 from search.</span>
+          </label>
+        </div>
+      </details>
     </form>
   </div>
 
@@ -54,6 +87,30 @@ const el = (tag, cls, text) => {
 let lastSearch = null;
 let debugData = {};
 
+const GRADES = [["", "Any"], ["-1", "Pre-K"], ["0", "K"], ...Array.from({length: 12}, (_, i) => [String(i + 1), String(i + 1)])];
+for (const id of ["gMin", "gMax"]) {
+  for (const [v, t] of GRADES) {
+    const o = el("option", null, t);
+    o.value = v;
+    $(id).append(o);
+  }
+}
+$("kw").addEventListener("input", () => { $("kwOut").textContent = Number($("kw").value).toFixed(2); });
+$("reset").addEventListener("click", () => {
+  $("gMin").value = ""; $("gMax").value = ""; $("maxRes").value = 8;
+  $("minScore").value = 0; $("cands").value = 40; $("kw").value = 0.3; $("kwOut").textContent = "0.30"; $("rr").checked = true;
+});
+
+function searchOptions() {
+  const num = (id, d) => { const v = Number($(id).value); return Number.isFinite(v) ? v : d; };
+  const grade = (id) => ($(id).value === "" ? null : Number($(id).value));
+  return {
+    grade_min: grade("gMin"), grade_max: grade("gMax"),
+    max_results: num("maxRes", 8), min_score: num("minScore", 0), candidates: num("cands", 40),
+    keyword_weight: num("kw", 0.3), use_reranker: $("rr").checked,
+  };
+}
+
 async function post(url, body) {
   const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
@@ -75,6 +132,7 @@ function renderExcerpt(x) {
   const head = el("div");
   head.append(el("span", "cite", `[${x.cite_id}]`), el("strong", null, x.label));
   const where = el("div", "where", [x.title, x.section_path].filter(Boolean).join(" › "));
+  if (x.grade_bands && x.grade_bands.length) where.append(" ", el("span", "tag", "Grades " + x.grade_bands.join(", ")));
   const quote = el("blockquote");
   let pos = 0;
   for (const [s, e] of x.highlights) {
@@ -160,7 +218,7 @@ $("ask").addEventListener("submit", async (ev) => {
   debugData = {};
   try {
     const t0 = performance.now();
-    const res = await post("/api/search", {query: q, debug: $("dbg").checked});
+    const res = await post("/api/search", {query: q, debug: $("dbg").checked, ...searchOptions()});
     lastSearch = res;
     showEnvelope(res);
     debugData.search = res.debug || null;

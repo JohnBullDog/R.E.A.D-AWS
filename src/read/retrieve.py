@@ -5,6 +5,7 @@ passed in as functions so everything here is testable without AWS.
 """
 
 import logging
+import re
 from collections.abc import Callable
 from datetime import date
 
@@ -131,10 +132,12 @@ def expand(
     get_section: Callable[[str], dict],
     get_canonical: Callable[[str, str], str],
     max_words: int = MAX_WORDS,
+    max_sections: int | None = None,
 ) -> list[dict]:
     """Group ranked passages by parent section; return whole sections in rank order.
 
-    A section that doesn't fit the word budget is dropped whole, never truncated.
+    A section that doesn't fit the word budget is dropped whole, never truncated. Stops once
+    max_sections sections are collected (later passages of those sections still add highlights).
     """
     evidence: list[dict] = []
     by_section: dict[str, dict] = {}
@@ -145,7 +148,7 @@ def expand(
         if sid in by_section:
             by_section[sid]["hits"].append((p["char_start"], p["char_end"]))
             continue
-        if sid in dropped:
+        if sid in dropped or (max_sections is not None and len(evidence) >= max_sections):
             continue
         sec = get_section(sid)
         text = get_canonical(sec["work_id"], sec["version_id"])[
@@ -207,3 +210,33 @@ def excerpt(e: dict) -> dict:
         "highlights": sorted([int(s) - base, int(t) - base] for s, t in e["hits"]),
         "ref": {k: sec[k] for k in ("section_id", "version_id", "char_start", "char_end")},
     }
+
+
+GRADE = {"pre-k": -1, "prek": -1, "pk": -1, "k": 0}
+
+
+def grade_value(g: str) -> int | None:
+    g = g.strip().lower()
+    if g in GRADE:
+        return GRADE[g]
+    return int(g) if g.isdigit() else None
+
+
+def parse_band(band: str) -> tuple[int, int] | None:
+    """'K-3' -> (0, 3), '2' -> (2, 2), 'K-12' -> (0, 12); None if unreadable."""
+    parts = [grade_value(x) for x in re.split(r"\s*(?:-|\u2013|to)\s*", str(band)) if x.strip()]
+    if not parts or None in parts:
+        return None
+    return min(parts), max(parts)
+
+
+def grades_overlap(work: dict, lo: int | None, hi: int | None) -> bool:
+    """Does any of the work's grade bands overlap [lo, hi]? Untagged works always match."""
+    if lo is None and hi is None:
+        return True
+    bands = [b for b in (parse_band(x) for x in work.get("grade_bands") or []) if b]
+    if not bands:
+        return True
+    lo = -1 if lo is None else lo
+    hi = 12 if hi is None else hi
+    return any(a <= hi and b >= lo for a, b in bands)

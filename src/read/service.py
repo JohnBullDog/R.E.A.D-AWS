@@ -18,17 +18,19 @@ from read.embed import embed
 from read.retrieve import (
     CANDIDATES,
     QUERY_MAX_CHARS,
+    TOP_N,
     active_versions,
     adjust,
     excerpt,
     expand,
+    grades_overlap,
     hybrid_query,
     is_active,
     number_cites,
     rerank,
     verified,
 )
-from read.store import INDEX, PIPELINE
+from read.store import INDEX, KEYWORD_WEIGHT, PIPELINE, pipeline_body
 
 DISCLAIMER = (
     "Advisory only. R.E.A.D. answers are machine-generated from the research excerpts shown and "
@@ -39,6 +41,36 @@ DECLINE = (
     "for reference, but they are not an answer."
 )
 ANSWER_ERROR = "The answer couldn't be generated. The excerpts above are verified source text."
+
+
+@dataclass
+class SearchOptions:
+    """Per-search settings from the Test page; out-of-range values are clamped."""
+
+    grade_min: int | None = None  # -1 = pre-K, 0 = K, 1..12
+    grade_max: int | None = None
+    max_results: int = TOP_N  # whole sections returned
+    min_score: float = 0.0  # drop sections whose best passage scored below this
+    candidates: int = CANDIDATES  # passages pulled from hybrid search
+    use_reranker: bool = True
+    keyword_weight: float = KEYWORD_WEIGHT  # 0 = meaning only, 1 = keywords only
+
+    def clamped(self) -> "SearchOptions":
+        def grade(g):
+            return None if g is None else min(max(int(g), -1), 12)
+
+        lo, hi = grade(self.grade_min), grade(self.grade_max)
+        if lo is not None and hi is not None and lo > hi:
+            lo, hi = hi, lo
+        return SearchOptions(
+            grade_min=lo,
+            grade_max=hi,
+            max_results=min(max(int(self.max_results), 1), 15),
+            min_score=min(max(float(self.min_score), 0.0), 1.0),
+            candidates=min(max(int(self.candidates), 10), 100),
+            use_reranker=bool(self.use_reranker),
+            keyword_weight=min(max(float(self.keyword_weight), 0.0), 1.0),
+        )
 
 
 @dataclass
@@ -122,26 +154,37 @@ def _envelope(works: dict[str, dict], st: Stores) -> dict:
     return {"disclaimer": DISCLAIMER, "content_last_updated": last_updated(works)}
 
 
-def search(q: str, st: Stores, debug: bool = False) -> dict:
+def search(q: str, st: Stores, debug: bool = False, options: SearchOptions | None = None) -> dict:
     t0 = time.perf_counter()
+    opt = (options or SearchOptions()).clamped()
     q = (q or "").strip()[:QUERY_MAX_CHARS]
     works = load_works(st)
     out = {"query": q, "excerpts": [], **_envelope(works, st)}
     if not q:
         return {**out, "message": "Type a question."}
-    active = active_versions(works, st.today)
+    in_grades = {
+        w["work_id"] for w in works.values() if grades_overlap(w, opt.grade_min, opt.grade_max)
+    }
+    active = active_versions({k: w for k, w in works.items() if k in in_grades}, st.today)
     if not active:
-        return {**out, "message": "No sources are active yet."}
+        msg = "No active sources for that grade range." if len(in_grades) < len(works) else None
+        return {**out, "message": msg or "No sources are active yet."}
     vec = embed(q, st.bedrock)
     t1 = time.perf_counter()
-    hits = st.os.search(
-        index=INDEX,
-        body=hybrid_query(q, vec, active, size=CANDIDATES),
-        params={"search_pipeline": PIPELINE},
-    )["hits"]["hits"]
+    body = hybrid_query(q, vec, active, size=opt.candidates)
+    params = {"search_pipeline": PIPELINE}
+    if abs(opt.keyword_weight - KEYWORD_WEIGHT) > 1e-9:  # one-off weights: inline pipeline
+        body["search_pipeline"] = pipeline_body(opt.keyword_weight)
+        params = {}
+    hits = st.os.search(index=INDEX, body=body, params=params)["hits"]["hits"]
     t2 = time.perf_counter()
     candidates = [h["_source"] for h in hits]
-    ranked = rerank(q, candidates, st.rerank, st.rerank_arn)
+    if opt.use_reranker:
+        ranked = rerank(q, candidates, st.rerank, st.rerank_arn, n=len(candidates))
+    else:
+        ranked = [(h["_source"], h["_score"]) for h in hits]
+    below = [(p, sc) for p, sc in ranked if sc < opt.min_score]
+    ranked = [(p, sc) for p, sc in ranked if sc >= opt.min_score]
     t3 = time.perf_counter()
     sections_cache: dict[str, dict] = {}
 
@@ -150,7 +193,7 @@ def search(q: str, st: Stores, debug: bool = False) -> dict:
             sections_cache[sid] = st.sections.get_item(Key={"section_id": sid})["Item"]
         return sections_cache[sid]
 
-    evidence = expand(ranked, get_section, st.text.get)
+    evidence = expand(ranked, get_section, st.text.get, max_sections=opt.max_results)
     evidence = number_cites(verified(adjust(evidence, works, st.today)))
     for e in evidence:
         x = excerpt(e)
@@ -161,29 +204,36 @@ def search(q: str, st: Stores, debug: bool = False) -> dict:
             title=work.get("title"),
             url=work.get("url"),
             page=_int(e["section"]["page"]) if e["section"].get("page") else None,
+            grade_bands=work.get("grade_bands"),
         )
         out["excerpts"].append(x)
     if not out["excerpts"]:
-        out["message"] = "No relevant sections found."
+        out["message"] = (
+            "No sections met the minimum relevance score."
+            if below and opt.min_score > 0
+            else "No relevant sections found."
+        )
     if debug:
         out["debug"] = {
+            "options": vars(opt),
             "timing_s": {
                 "embed": round(t1 - t0, 2),
                 "search": round(t2 - t1, 2),
-                "rerank": round(t3 - t2, 2),
+                "rerank": round(t3 - t2, 2) if opt.use_reranker else 0,
                 "total": round(time.perf_counter() - t0, 2),
             },
+            "sources_in_grade_range": sorted(in_grades),
             "candidates": len(candidates),
+            "below_min_score": len(below),
             "hybrid_top": [
                 {"score": round(h["_score"], 4), "chunk_id": h["_source"]["chunk_id"]}
                 for h in hits[:10]
             ],
-            "rerank": [
-                {"score": round(s, 5), "chunk_id": p["chunk_id"], "section": p.get("section_path")}
-                for p, s in ranked
+            "ranked_top": [
+                {"score": round(sc, 5), "chunk_id": p["chunk_id"], "section": p.get("section_path")}
+                for p, sc in ranked[:15]
             ],
             "final_scores": {e["cite_id"]: round(e["score"], 5) for e in evidence},
-            "active_versions": active,
         }
     return out
 

@@ -40,20 +40,27 @@ INDEX_BODY = {
     },
 }
 
-PIPELINE_BODY = {
-    "description": "Min-max normalize BM25 and k-NN scores, then weight them",
-    "phase_results_processors": [
-        {
-            "normalization-processor": {
-                "normalization": {"technique": "min_max"},
-                "combination": {
-                    "technique": "arithmetic_mean",
-                    "parameters": {"weights": [KEYWORD_WEIGHT, SEMANTIC_WEIGHT]},
-                },
+
+def pipeline_body(keyword_weight: float = KEYWORD_WEIGHT) -> dict:
+    """Min-max normalize BM25 and k-NN scores, then combine with these weights."""
+    kw = round(min(max(keyword_weight, 0.0), 1.0), 3)
+    return {
+        "description": "Min-max normalize BM25 and k-NN scores, then weight them",
+        "phase_results_processors": [
+            {
+                "normalization-processor": {
+                    "normalization": {"technique": "min_max"},
+                    "combination": {
+                        "technique": "arithmetic_mean",
+                        "parameters": {"weights": [kw, round(1 - kw, 3)]},
+                    },
+                }
             }
-        }
-    ],
-}
+        ],
+    }
+
+
+PIPELINE_BODY = pipeline_body()
 
 
 def is_local(endpoint: str) -> bool:
