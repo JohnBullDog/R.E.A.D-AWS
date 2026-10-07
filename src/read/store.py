@@ -92,3 +92,78 @@ def ensure_index(client) -> list[str]:
     client.transport.perform_request("PUT", f"/_search/pipeline/{PIPELINE}", body=PIPELINE_BODY)
     done.append(f"put pipeline {PIPELINE}")
     return done
+
+
+# ---- DynamoDB: works and sections tables (DynamoDB Local in development) ----
+
+WORKS_TABLE = os.environ.get("WORKS_TABLE", "read-poc-works")
+SECTIONS_TABLE = os.environ.get("SECTIONS_TABLE", "read-poc-sections")
+TABLE_KEYS = {WORKS_TABLE: "work_id", SECTIONS_TABLE: "section_id"}
+
+
+def dynamodb_resource(endpoint: str | None = None):
+    """DynamoDB resource; a localhost endpoint means DynamoDB Local with dummy credentials,
+    so a local run can never touch the real AWS account."""
+    import boto3
+
+    endpoint = endpoint or os.environ.get("DYNAMODB_ENDPOINT")
+    if endpoint and is_local(endpoint):
+        return boto3.resource(
+            "dynamodb",
+            endpoint_url=endpoint,
+            region_name="us-east-1",
+            aws_access_key_id="local",
+            aws_secret_access_key="local",
+        )
+    return boto3.resource("dynamodb")
+
+
+def ensure_tables(ddb) -> list[str]:
+    """Create the works and sections tables (on-demand billing) if missing."""
+    existing = {t.name for t in ddb.tables.all()}
+    done = []
+    for name, key in TABLE_KEYS.items():
+        if name in existing:
+            continue
+        table = ddb.create_table(
+            TableName=name,
+            KeySchema=[{"AttributeName": key, "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": key, "AttributeType": "S"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        table.wait_until_exists()
+        done.append(f"created table {name}")
+    return done
+
+
+# ---- Canonical text: write-once files (the works-text S3 bucket in AWS) ----
+
+
+class WriteOnceError(Exception):
+    """A canonical text file already exists with different content."""
+
+
+class LocalTextStore:
+    """works-text/<work_id>/<version_id>.txt on local disk, write-once like the S3 bucket."""
+
+    def __init__(self, root: str | os.PathLike):
+        from pathlib import Path
+
+        self.root = Path(root)
+
+    def key(self, work_id: str, version_id: str) -> str:
+        return f"{work_id}/{version_id}.txt"
+
+    def put(self, work_id: str, version_id: str, text: str) -> str:
+        path = self.root / self.key(work_id, version_id)
+        data = text.encode("utf-8")
+        if path.exists():
+            if path.read_bytes() != data:
+                raise WriteOnceError(f"{path} exists with different content")
+            return self.key(work_id, version_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return self.key(work_id, version_id)
+
+    def get(self, work_id: str, version_id: str) -> str:
+        return (self.root / self.key(work_id, version_id)).read_bytes().decode("utf-8")

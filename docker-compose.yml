@@ -1,10 +1,10 @@
-# Local OpenSearch for development (free). Reachable only from this PC (127.0.0.1).
-# Security is disabled: never expose this port or put real credentials in it.
+# Local stand-ins for AWS services, for development (free). Reachable only from this PC.
+# Security is disabled: never expose these ports or put real data or credentials in them.
 #   docker compose up -d        start
-#   docker compose down         stop (data kept in the "opensearch-data" volume)
+#   docker compose down         stop (data kept in named volumes)
 #   docker compose down -v      stop and delete the data
 services:
-  opensearch:
+  opensearch:  # stands in for OpenSearch Serverless
     image: opensearchproject/opensearch:2.19.1
     environment:
       - discovery.type=single-node
@@ -16,5 +16,15 @@ services:
     volumes:
       - opensearch-data:/usr/share/opensearch/data
 
+  dynamodb:  # AWS's official DynamoDB Local: same API as DynamoDB
+    image: amazon/dynamodb-local:latest
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /home/dynamodblocal/data"
+    user: root
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - dynamodb-data:/home/dynamodblocal/data
+
 volumes:
   opensearch-data:
+  dynamodb-data:

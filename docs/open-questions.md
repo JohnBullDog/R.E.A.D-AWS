@@ -35,6 +35,9 @@ Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against 
   (old OCR). The body text is fine.
 
 ## Needs John (not decisions)
+- License verification for the 4 placeholders (John or Addison): check each source's terms,
+  then fill in `license`, `license_verified_by` (your name) and `license_verified_on`
+  (YYYY-MM-DD) in each `corpus/*.meta.json` and re-run ingest. Until then nothing is searchable.
 - Boundary policy `read-poc-boundary`: not needed until we deploy Lambdas (week 4); I'll walk
   John through creating it then.
 - Real sources: placeholders are in `corpus/` for now (D39); the real list comes from Addison.

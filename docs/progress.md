@@ -2,6 +2,26 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-06 — Session 1i: local DynamoDB + ingestion script
+
+**Done**
+- DynamoDB Local added to docker-compose (D40). `store.py`: `dynamodb_resource`,
+  `ensure_tables`, write-once `LocalTextStore`. `src/read/ingest.py`: `check_meta`,
+  `license_ok`, `local_version_id`, `work_record`. `scripts/ingest.py --local`: the full ingest
+  path (metadata check, version ID, extract, canonical text, chunk with verified offsets,
+  embed with retries, bulk index, sections to DynamoDB, count check, license gate, activation,
+  retiring the previous version).
+- Ingested all 4 placeholders (embedding cost about $0.005 total).
+
+**Verified**
+- 82 unit tests pass.
+- Local stores: 4 works rows (all awaiting_license; MS 2016 superseded_by MS 2025), 1,466
+  sections in DynamoDB, 1,729 passages in OpenSearch; active (searchable) versions: none,
+  as the license gate requires. Re-running an unchanged file prints "unchanged".
+
+**Next**: someone verifies the placeholder licenses, then activation and the full search path
+run on real reading research; after that, the `/search` and `/answer` handlers.
+
 ## 2026-10-06 — Session 1h: placeholder corpus + real-document fixes
 
 **Done**

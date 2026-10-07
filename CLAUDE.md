@@ -143,8 +143,9 @@ pip install -r requirements.txt -r requirements-dev.txt
 pytest                                   # run before every commit
 ruff check . && ruff format --check .
 sam build && sam deploy                  # ask before running; shows a changeset first
-python scripts/setup_opensearch.py       # one-time, after the collection exists
-python scripts/ingest.py corpus/<file> corpus/<file>.meta.json
+docker compose up -d                     # local OpenSearch (:9200) + DynamoDB Local (:8000)
+python scripts/setup_opensearch.py --local
+python scripts/ingest.py corpus/<file> corpus/<file>.meta.json --local
 python scripts/eval.py eval/golden.jsonl
 ```
 
