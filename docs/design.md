@@ -31,6 +31,9 @@ Oct 6, 2026 · @John Patton
 > - **R10 Page layout:** NotebookLM-style. The answer is shown first with numbered citation chips
 >   that expand to the verbatim excerpts; a Sources list follows (cited first, uncited collapsed).
 >   Sources still appear as soon as /search returns. Replaces "excerpts first, then the answer".
+> - **R11 Verified quotes:** wording an answer reuses from a cited section (8+ words) is shown as
+>   a quotation sliced from the canonical text, max 40 words; reuse from an uncited section fails
+>   validation. Replaces "no copied 8-word phrase".
 > - **R7 Declines:** an unanswerable result may have no sentences; the page shows a fixed
 >   decline message written in code.
 

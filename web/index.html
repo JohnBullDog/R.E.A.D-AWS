@@ -57,13 +57,13 @@
     </form>
   </div>
 
-  <div id="disclaimer" class="disclaimer" hidden></div>
-  <div id="status" class="notice"></div>
-
   <section id="answerBox" hidden>
     <h2>Answer <span class="kind">machine-generated</span></h2>
     <div class="panel answer" id="answer"></div>
   </section>
+
+  <div id="status" class="notice"></div>
+  <div id="disclaimer" class="disclaimer" hidden></div>
 
   <section id="sourcesBox" hidden>
     <h2>Sources <span class="kind">verbatim source text</span></h2>
@@ -229,7 +229,15 @@ function renderAnswer(res) {
     }
     const p = el("p", "answertext");
     for (const s of res.sentences) {
-      p.append(s.text);
+      for (const part of s.parts || [{text: s.text}]) {
+        if (part.quote != null) {
+          const qt = el("q", "vquote", part.quote);  // exact words sliced from the source file
+          qt.title = "Exact words from source " + (refNum[res.cite_map[part.cite]] || "") + " (verified)";
+          p.append(qt);
+        } else {
+          p.append(part.text);
+        }
+      }
       const sids = [...new Set(s.cites.map((c) => res.cite_map[c]).filter(Boolean))];
       for (const sid of sids) {
         const chip = el("button", "chip", String(refNum[sid]));
@@ -242,7 +250,7 @@ function renderAnswer(res) {
       }
       p.append(" ");
     }
-    box.append(p, el("p", "notice", "Click a number to see the exact source text."));
+    box.append(p, el("p", "notice", "Click a number to see the exact source text. Words in quotation marks are verified, word for word, against that source."));
   } else {
     box.append(el("p", res.state === "error" ? "err" : null, res.message));
     if (res.state === "error") {

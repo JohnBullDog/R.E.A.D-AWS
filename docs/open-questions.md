@@ -35,6 +35,10 @@ Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against 
   If grade filtering matters for teachers, sections would need their own grade tags (e.g.
   the MS standards have a grade per section).
 
+- Quote-heavy answers: with D54, some answers are mostly quotes (one had 6 quotes) and some
+  quotes are fragments where Nova changed one word mid-phrase. Option: if more than about half
+  of an answer's words are quoted, retry asking for more of its own words. Needs John's call.
+
 ## Needs John (not decisions)
 - License verification for the 4 placeholders (John or Addison): check each source's terms,
   then fill in `license`, `license_verified_by` (your name) and `license_verified_on`

@@ -15,6 +15,7 @@ from read.answer import call_model, cited_answer
 from read.chunk import sha
 from read.cite import cite_label, last_updated
 from read.embed import embed
+from read.quote import quote_parts
 from read.retrieve import (
     CANDIDATES,
     QUERY_MAX_CHARS,
@@ -238,6 +239,13 @@ def search(q: str, st: Stores, debug: bool = False, options: SearchOptions | Non
     return out
 
 
+def sentence_parts(sentence: dict, evidence: list[dict]) -> dict:
+    """A validated sentence for display: the model's own words, with any wording it reused from
+    a cited section shown as a quote sliced from that section's canonical text (rule 1)."""
+    texts = {e["cite_id"]: e["text"] for e in evidence}
+    return {**sentence, "parts": quote_parts(sentence["text"], sentence["cites"], texts)}
+
+
 def answer(q: str, refs: list[dict], st: Stores, debug: bool = False) -> dict:
     """Cited answer for the excerpts /search returned. Only refs come from the browser."""
     t0 = time.perf_counter()
@@ -285,7 +293,9 @@ def answer(q: str, refs: list[dict], st: Stores, debug: bool = False) -> dict:
         out.update(
             state="answer" if a["answerable"] else "declined",
             message=None if a["answerable"] else DECLINE,
-            sentences=a["sentences"] if a["answerable"] else [],
+            sentences=[sentence_parts(x, evidence) for x in a["sentences"]]
+            if a["answerable"]
+            else [],
             evidence_strength=res["evidence_strength"],
             strength_reason=a["strength_reason"],
             strength_capped_by=res["strength_capped_by"],

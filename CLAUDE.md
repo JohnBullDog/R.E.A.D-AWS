@@ -29,7 +29,10 @@ that would weaken one.
    JSON schema. Citation labels (publisher, year, page) are rendered from source metadata
    in code. The model must not be able to produce a source name, date, or page.
 4. **Validate every answer:** every cite exists in the retrieved set, every sentence has a
-   cite when answerable, and no 8-word phrase is copied from a cited section. Retry once;
+   cite when answerable, and any wording of 8+ words reused from a section is shown as a
+   verified quotation of that section (sliced from canonical text, at most 40 words, only from
+   a section the sentence cites; otherwise the answer fails). Changed with John's approval
+   2026-10-07 (D54). Retry once (with feedback);
    on a second failure return the error state (excerpts plus "answer couldn't be generated"
    and a retry button). There is no excerpts-only mode.
 5. **Never truncate a section** to fit a token budget. Drop whole sections, lowest-ranked first.

@@ -59,10 +59,16 @@ def test_missing_cite_when_answerable():
     assert validate(out, EVIDENCE) == ["sentence 0 has no citation"]
 
 
-def test_copied_8gram_detected_case_and_punctuation_insensitive():
+def test_reused_wording_from_cited_section_is_allowed_as_a_quote():
     copied = "It helps Kindergarten students learn to segment, and blend the individual sounds!"
     out = good(sentences=[{"text": copied, "cites": ["S1"]}])
-    assert validate(out, EVIDENCE)[0].startswith("sentence 0 copies text from S1: ")
+    assert validate(out, EVIDENCE) == []
+
+
+def test_reused_wording_from_uncited_section_is_rejected():
+    copied = "It helps Kindergarten students learn to segment, and blend the individual sounds!"
+    out = good(sentences=[{"text": copied, "cites": ["S2"]}])
+    assert "reuses wording from S1 without citing it" in validate(out, EVIDENCE)[0]
 
 
 def test_seven_words_shared_is_allowed():
@@ -175,15 +181,15 @@ def test_decline_still_rejects_bad_cites():
     assert validate(out, EVIDENCE) == ["sentence 0 cites unknown 'S9'"]
 
 
-def test_system_prompt_states_the_copy_rule_with_the_same_n():
-    from read.answer import NGRAM, SYSTEM
+def test_system_prompt_states_the_reuse_limit():
+    from read.answer import MAX_QUOTE_WORDS, SYSTEM
 
-    assert f"never repeat {NGRAM} or more consecutive words" in SYSTEM
+    assert f"Never reuse more than {MAX_QUOTE_WORDS} consecutive words" in SYSTEM
 
 
 def test_retry_tells_the_model_what_it_copied():
     copied = "It helps Kindergarten students learn to segment, and blend the individual sounds!"
-    outs = [good(sentences=[{"text": copied, "cites": ["S1"]}]), good()]
+    outs = [good(sentences=[{"text": copied, "cites": ["S2"]}]), good()]
     feedbacks = []
 
     def model(q, e, fb):
@@ -192,10 +198,8 @@ def test_retry_tells_the_model_what_it_copied():
 
     res = cited_answer("q", EVIDENCE, WORKS, model)
     assert res["ok"] and feedbacks[0] is None
-    assert (
-        'copies text from S1: "helps kindergarten students learn to segment and blend the '
-        'individual sounds"' in feedbacks[1]
-    )
+    assert "reuses wording from S1 without citing it" in feedbacks[1]
+    assert "Kindergarten students learn to segment, and blend the individual sounds" in feedbacks[1]
     assert copied in feedbacks[1]  # the rejected sentence is shown back
     assert [len(a["problems"]) for a in res["attempts"]] == [1, 0]
 
@@ -205,13 +209,3 @@ def test_call_model_appends_feedback(monkeypatch):
     fake = FakeBedrock([{"toolUse": {"name": TOOL_NAME, "input": good()}}])
     call_model("q", EVIDENCE, fake, "FIX THIS")
     assert fake.kwargs["messages"][0]["content"][0]["text"].endswith("\n\nFIX THIS")
-
-
-def test_copied_runs_merges_overlaps_longest_first():
-    from read.answer import copied_runs
-
-    grams = ngrams(SRC1)
-    s = "So kindergarten students learn to segment and blend the individual sounds in spoken words"
-    assert copied_runs(s, grams) == [
-        "kindergarten students learn to segment and blend the individual sounds in spoken words"
-    ]

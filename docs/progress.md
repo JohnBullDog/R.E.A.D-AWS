@@ -2,6 +2,23 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-07 — Session 2e: verified quotes; answer at the top
+
+**Why answers regenerated**: Nova's first drafts failed the 8-word copy rule on 8 of 10
+questions; the copied text was mostly names of WWC recommendations and MS standards. A stricter
+prompt (4 words) didn't help (3/10).
+
+**Done**: D54 verified quotes (code finds reused wording and shows it as a quotation sliced from
+the source); D55 answer under the question box. CLAUDE.md rule 4 and design (R11) updated.
+New module `src/read/quote.py`. 106 unit tests pass.
+
+**Tried and dropped**: model-marked quotes (a `quote` field in the tool schema): 8/10 failed
+because Nova didn't mark them consistently.
+
+**Verified live (10 questions, about 25 cents for this round)**: 10/10 answered on the first
+attempt, about 3 s each, 50 verified quotes shown. Found and fixed: a displayed quote dropped
+a real hyphen ("instructional-level"); line-break hyphens are now always kept.
+
 ## 2026-10-07 — Session 2d: NotebookLM-style answers
 
 **Done (D53)**: Test page now shows the answer first with numbered citation chips; a chip opens
