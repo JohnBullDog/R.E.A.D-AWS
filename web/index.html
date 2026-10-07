@@ -14,7 +14,7 @@
 </header>
 <main>
   <h1>Ask a Science of Reading question</h1>
-  <p class="sub">Answers come only from the research excerpts shown. This is the teacher view; turn on debug for scores and timings.</p>
+  <p class="sub">Answers come only from the research sources listed under each answer. Click a citation number to read the exact source text.</p>
 
   <div class="panel">
     <form id="ask">
@@ -60,14 +60,14 @@
   <div id="disclaimer" class="disclaimer" hidden></div>
   <div id="status" class="notice"></div>
 
-  <section id="excerptBox" hidden>
-    <h2>Supporting excerpts <span class="kind">verbatim source text</span></h2>
-    <div id="excerpts"></div>
-  </section>
-
   <section id="answerBox" hidden>
     <h2>Answer <span class="kind">machine-generated</span></h2>
     <div class="panel answer" id="answer"></div>
+  </section>
+
+  <section id="sourcesBox" hidden>
+    <h2>Sources <span class="kind">verbatim source text</span></h2>
+    <div id="sources"></div>
   </section>
 
   <section id="debugBox" hidden>
@@ -77,6 +77,7 @@
 </main>
 <script>
 // Everything from the corpus or the model is rendered with textContent (CLAUDE.md rule 9).
+// Reference text shown here always comes from /search (canonical, hash-checked), never from the model.
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -84,7 +85,8 @@ const el = (tag, cls, text) => {
   if (text != null) n.textContent = text;
   return n;
 };
-let lastSearch = null;
+let lastSearch = null;   // /search response
+let refNum = {};         // section_id -> citation number shown to the teacher (1, 2, ...)
 let debugData = {};
 
 const GRADES = [["", "Any"], ["-1", "Pre-K"], ["0", "K"], ...Array.from({length: 12}, (_, i) => [String(i + 1), String(i + 1)])];
@@ -124,15 +126,10 @@ function showEnvelope(res) {
   d.hidden = false;
 }
 
-function exId(sectionId) { return "ex-" + sectionId.replace(/[^A-Za-z0-9_-]/g, "_"); }
+const bySection = () => Object.fromEntries((lastSearch ? lastSearch.excerpts : []).map((x) => [x.ref.section_id, x]));
 
-function renderExcerpt(x) {
-  const card = el("article", "panel excerpt");
-  card.id = exId(x.ref.section_id);
-  const head = el("div");
-  head.append(el("span", "cite", `[${x.cite_id}]`), el("strong", null, x.label));
-  const where = el("div", "where", [x.title, x.section_path].filter(Boolean).join(" › "));
-  if (x.grade_bands && x.grade_bands.length) where.append(" ", el("span", "tag", "Grades " + x.grade_bands.join(", ")));
+// The verbatim excerpt with the matched passages highlighted.
+function quoteOf(x) {
   const quote = el("blockquote");
   let pos = 0;
   for (const [s, e] of x.highlights) {
@@ -142,8 +139,69 @@ function renderExcerpt(x) {
     pos = Math.max(pos, e);
   }
   quote.append(x.text.slice(pos));
-  card.append(head, where, quote);
-  return card;
+  return quote;
+}
+
+function refHeader(x, num) {
+  const head = el("div", "refhead");
+  if (num) head.append(el("span", "chip static", String(num)));
+  head.append(el("strong", null, x.label));
+  const where = el("div", "where", [x.title, x.section_path].filter(Boolean).join(" › "));
+  if (x.grade_bands && x.grade_bands.length) where.append(" ", el("span", "tag", "Grades " + x.grade_bands.join(", ")));
+  return [head, where];
+}
+
+// A collapsible source entry for the Sources list.
+function sourceItem(x, num) {
+  const d = el("details", "panel source");
+  d.id = "src-" + x.ref.section_id.replace(/[^A-Za-z0-9_-]/g, "_");
+  const s = el("summary");
+  s.append(...refHeader(x, num));
+  d.append(s, el("div", "kind", "Verbatim source text"), quoteOf(x));
+  return d;
+}
+
+function renderSources(citedOrder) {
+  const map = bySection();
+  const cited = citedOrder.map((sid) => map[sid]).filter(Boolean);
+  const rest = lastSearch.excerpts.filter((x) => !citedOrder.includes(x.ref.section_id));
+  const box = $("sources");
+  box.replaceChildren();
+  if (cited.length) {
+    cited.forEach((x) => box.append(sourceItem(x, refNum[x.ref.section_id])));
+    if (rest.length) {
+      const more = el("details", "more");
+      more.append(el("summary", null, `Also searched, not cited (${rest.length})`), ...rest.map((x) => sourceItem(x)));
+      box.append(more);
+    }
+  } else {
+    box.append(...rest.map((x) => sourceItem(x)));
+  }
+  $("sourcesBox").hidden = lastSearch.excerpts.length === 0;
+}
+
+// Expanded reference cards that open under the answer when a chip is clicked.
+function toggleRef(sid, chip) {
+  const tray = $("refTray");
+  const key = "ref-" + sid.replace(/[^A-Za-z0-9_-]/g, "_");
+  const open = document.getElementById(key);
+  document.querySelectorAll(`.chip[data-sid="${CSS.escape(sid)}"]`).forEach((c) => c.classList.toggle("on", !open));
+  if (open) { open.remove(); return; }
+  const x = bySection()[sid];
+  if (!x) return;
+  const card = el("article", "panel refcard");
+  card.id = key;
+  const close = el("button", "ghost small closeref", "Close");
+  close.type = "button";
+  close.addEventListener("click", () => toggleRef(sid));
+  const top = el("div", "row");
+  top.style.justifyContent = "space-between";
+  const left = el("div");
+  left.append(...refHeader(x, refNum[sid]));
+  top.append(left, close);
+  card.append(top, el("div", "kind", "Verbatim source text"), quoteOf(x));
+  tray.prepend(card);
+  card.scrollIntoView({block: "nearest", behavior: "smooth"});
 }
 
 function strengthTag(flag) {
@@ -160,23 +218,31 @@ function renderAnswer(res) {
   if (res.strength_capped_by && res.strength_capped_by.length) {
     box.append(el("p", "notice", "Flag lowered to limited: " + res.strength_capped_by.join("; ") + "."));
   }
+  refNum = {};
+  const order = [];
   if (res.state === "answer") {
-    const searchIds = Object.fromEntries(lastSearch.excerpts.map((x) => [x.ref.section_id, x.cite_id]));
     for (const s of res.sentences) {
-      const p = el("p", null, s.text + " ");
       for (const c of s.cites) {
         const sid = res.cite_map[c];
-        const a = el("a", "c", `[${searchIds[sid] || c}]`);
-        a.href = "#" + exId(sid);
-        a.title = res.labels[c] || "";
-        a.addEventListener("click", () => {
-          const t = $(exId(sid));
-          if (t) { t.classList.add("flash"); setTimeout(() => t.classList.remove("flash"), 1200); }
-        });
-        p.append(a, " ");
+        if (sid && !(sid in refNum)) { refNum[sid] = order.length + 1; order.push(sid); }
       }
-      box.append(p);
     }
+    const p = el("p", "answertext");
+    for (const s of res.sentences) {
+      p.append(s.text);
+      const sids = [...new Set(s.cites.map((c) => res.cite_map[c]).filter(Boolean))];
+      for (const sid of sids) {
+        const chip = el("button", "chip", String(refNum[sid]));
+        chip.type = "button";
+        chip.dataset.sid = sid;
+        chip.title = (bySection()[sid] || {}).label || "";
+        chip.setAttribute("aria-label", "Show source " + refNum[sid]);
+        chip.addEventListener("click", () => toggleRef(sid, chip));
+        p.append(" ", chip);
+      }
+      p.append(" ");
+    }
+    box.append(p, el("p", "notice", "Click a number to see the exact source text."));
   } else {
     box.append(el("p", res.state === "error" ? "err" : null, res.message));
     if (res.state === "error") {
@@ -185,7 +251,14 @@ function renderAnswer(res) {
       box.append(retry);
     }
   }
+  const tray = el("div", "reftray");
+  tray.id = "refTray";
+  box.append(tray);
   $("answerBox").hidden = false;
+  renderSources(order);
+  if (res.state === "declined" && lastSearch.excerpts.length) {
+    $("sources").prepend(el("p", "notice", "Closest matches. These are not an answer to your question."));
+  }
 }
 
 function showDebug() {
@@ -194,7 +267,7 @@ function showDebug() {
 }
 
 async function getAnswer() {
-  $("answer").replaceChildren(el("p", "notice", "Writing the answer…"));
+  $("answer").replaceChildren(el("p", "notice", "Writing the answer from these sources…"));
   $("answerBox").hidden = false;
   try {
     const res = await post("/api/answer", {query: lastSearch.query, refs: lastSearch.excerpts.map((x) => x.ref), debug: $("dbg").checked});
@@ -212,10 +285,11 @@ $("ask").addEventListener("submit", async (ev) => {
   const q = $("q").value.trim();
   if (!q) return;
   $("go").disabled = true;
-  $("status").textContent = "Searching…";
+  $("status").textContent = "Finding sources…";
   $("answerBox").hidden = true;
-  $("excerptBox").hidden = true;
+  $("sourcesBox").hidden = true;
   debugData = {};
+  refNum = {};
   try {
     const t0 = performance.now();
     const res = await post("/api/search", {query: q, debug: $("dbg").checked, ...searchOptions()});
@@ -223,9 +297,8 @@ $("ask").addEventListener("submit", async (ev) => {
     showEnvelope(res);
     debugData.search = res.debug || null;
     debugData.search_ms_in_browser = Math.round(performance.now() - t0);
-    $("excerpts").replaceChildren(...res.excerpts.map(renderExcerpt));
-    $("excerptBox").hidden = res.excerpts.length === 0;
-    $("status").textContent = res.message || `${res.excerpts.length} excerpts`;
+    renderSources([]);  // sources are available right away, before the answer is written
+    $("status").textContent = res.message || `${res.excerpts.length} sources found`;
     showDebug();
     if (res.excerpts.length) await getAnswer();
   } catch (e) {

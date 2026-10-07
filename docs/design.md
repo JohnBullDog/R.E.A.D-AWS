@@ -28,6 +28,9 @@ Oct 6, 2026 · @John Patton
 > - **R9 Retry with feedback:** the single retry after a failed validation includes the rejected
 >   sentences and the problems (e.g. the copied phrase), since a temperature-0 retry with the same
 >   prompt repeats the same answer.
+> - **R10 Page layout:** NotebookLM-style. The answer is shown first with numbered citation chips
+>   that expand to the verbatim excerpts; a Sources list follows (cited first, uncited collapsed).
+>   Sources still appear as soon as /search returns. Replaces "excerpts first, then the answer".
 > - **R7 Declines:** an unanswerable result may have no sentences; the page shows a fixed
 >   decline message written in code.
 

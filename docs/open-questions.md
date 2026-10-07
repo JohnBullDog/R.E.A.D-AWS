@@ -23,9 +23,6 @@ D28 makes the proposal the ground truth for the final product, but it isn't in t
 Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against it.
 
 ## To watch (no decision yet)
-- Off-topic questions now still show the 8 closest excerpts before the answer says it can't
-  answer (D33). For the teacher page (week 5): hide or label those excerpts ("closest matches,
-  not an answer") when the answer is a decline. Needs John's call when the page is built.
 - The reranker barely beat hybrid order on the design-doc test corpus. Compare with and
   without it on the golden set before keeping it.
 

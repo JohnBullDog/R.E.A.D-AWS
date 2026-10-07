@@ -2,6 +2,18 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-07 — Session 2d: NotebookLM-style answers
+
+**Done (D53)**: Test page now shows the answer first with numbered citation chips; a chip opens
+the verbatim excerpt (matched passage highlighted) under the answer; the Sources list below has
+cited sources first (expandable) and uncited ones collapsed. Declines label the list "Closest
+matches". CLAUDE.md and design.md (R10) updated. This also closes the earlier open item about
+off-topic questions showing irrelevant excerpts.
+
+**Verified**: in Chrome via page script: "How should I teach phonemic awareness in kindergarten?"
+-> 8 sources, answer with 7 chips; clicking chip 1 opened one reference card with a highlighted
+excerpt. Screenshots timed out (browser tool issue), so the visual check is John's.
+
 ## 2026-10-07 — Session 2c: search options
 
 **Done**: Test page gets a grade range (Pre-K to 12) and max results (1-15), plus a collapsed

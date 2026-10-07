@@ -173,3 +173,23 @@ details#adv summary { cursor: pointer; color: var(--muted); font-size: 14px; }
 input[type="range"] { width: 100%; }
 .grid label.check { flex-direction: row; flex-wrap: wrap; align-items: center; align-content: flex-start; }
 .grid label.check .hint { flex-basis: 100%; }
+/* NotebookLM-style citations */
+.answertext { font-size: 16.5px; line-height: 1.75; }
+.chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; height: 22px; padding: 0 6px; margin: 0 1px;
+  border-radius: 999px; border: 1px solid var(--line);
+  background: var(--chip); color: var(--accent);
+  font-size: 12px; font-weight: 700; line-height: 1; vertical-align: 2px; cursor: pointer;
+}
+.chip:hover, .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.chip.static { cursor: default; margin-right: 8px; vertical-align: 1px; }
+.reftray { margin-top: 10px; }
+.refcard { border-left: 3px solid var(--accent); background: var(--quote); }
+.refhead { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+details.source > summary { cursor: pointer; list-style: none; }
+details.source > summary::-webkit-details-marker { display: none; }
+details.source > summary::after { content: "Show source text ▾"; float: right; color: var(--muted); font-size: 13px; margin-top: -22px; }
+details.source[open] > summary::after { content: "Hide ▴"; }
+details.source .kind { margin-top: 10px; }
+details.more > summary { cursor: pointer; color: var(--muted); margin: 6px 0 10px; }

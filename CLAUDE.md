@@ -54,7 +54,8 @@ Build now:
 - Authority/recency ranking, evidence-strength capping, citation labels from metadata
 - Reranking with Amazon Rerank 1.0 (`amazon.rerank-v1:0`) in **us-west-2** (not offered in
   us-east-1); the only AWS action allowed outside us-east-1 (decisions D31)
-- One static HTML page: excerpts first, then the answer
+- One static HTML page, NotebookLM-style: the answer with numbered citations that expand to the
+  verbatim excerpts, and a Sources list (D53)
 - Golden-question evaluation script
 
 Deferred until Q&A works end to end (don't build unless asked): Step Functions, SQS,
@@ -72,7 +73,8 @@ Teacher page --> API Gateway --> /search Lambda  (hybrid search, rank, expand, h
                              --> /answer Lambda  (re-reads sections by ref, calls LLM, validates)
 ```
 
-The page calls `/search` first and shows excerpts immediately, then calls `/answer`.
+The page calls `/search` first and lists the sources immediately, then calls `/answer` and shows
+the answer above them with expandable citations.
 `/answer` re-loads sections by `ref` from the stores; it never trusts excerpt text sent
 back from the browser.
 
