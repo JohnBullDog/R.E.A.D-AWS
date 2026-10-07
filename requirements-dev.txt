@@ -1,2 +1,5 @@
 pytest==8.4.2
 ruff==0.13.3
+fastapi==0.142.2
+uvicorn==0.54.0
+python-multipart==0.0.32

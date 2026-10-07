@@ -2,6 +2,30 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-07 — Session 2a: local web GUI
+
+**Done**
+- `scripts/dev_server.py` (FastAPI, localhost only) + `web/index.html` (Test page: teacher view
+  + debug) + `web/sources.html` (upload/ingest with live progress, list/status, license
+  evidence + sign-off, expiry/superseded editing, deactivate/reactivate, delete with typed
+  confirmation, paged section browser with hash checks) + `web/style.css` (light/dark).
+- Shared code: `src/read/service.py` (search/answer), `src/read/pipeline.py` (ingest,
+  activate, status, tags, delete). `scripts/ingest.py` now calls the pipeline.
+- License research for the placeholders written into each meta.json (evidence + recommendation);
+  sign-off left for John.
+
+**Verified**
+- 87 unit tests pass (new: /answer ignores browser text, omits tampered/wrong-version/expired
+  sections, decline message, error state carries a flag, display status).
+- In Chrome: Sources page lists the 4 placeholders (awaiting_license), detail panel shows
+  license evidence, section browser pages through 320 WWC sections with hash checks.
+- Full flow with a self-written test fixture (not research): upload -> ingest -> awaiting_license
+  -> sign-off -> ready -> Test page question -> 2 excerpts with highlights and labels ->
+  cited Nova answer -> flag "limited" (single practitioner source) -> debug timings (cold embed
+  3.4 s, search 0.15 s, rerank 1.6 s). Fixture then deleted from search and tables.
+
+**Next**: John reviews and signs off licenses in the GUI (Sources page); then real questions.
+
 ## 2026-10-06 — Session 1i: local DynamoDB + ingestion script
 
 **Done**

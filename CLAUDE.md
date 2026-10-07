@@ -146,6 +146,7 @@ sam build && sam deploy                  # ask before running; shows a changeset
 docker compose up -d                     # local OpenSearch (:9200) + DynamoDB Local (:8000)
 python scripts/setup_opensearch.py --local
 python scripts/ingest.py corpus/<file> corpus/<file>.meta.json --local
+python scripts/dev_server.py             # GUI at http://localhost:8080 (Test + Sources)
 python scripts/eval.py eval/golden.jsonl
 ```
 

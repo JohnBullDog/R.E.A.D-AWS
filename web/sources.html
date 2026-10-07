@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R.E.A.D. Sources</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <span class="brand">R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></span>
+  <nav><a href="/">Test</a><a href="/sources" class="on">Sources</a></nav>
+  <span class="devtag">local dev</span>
+</header>
+<main>
+  <h1>Sources</h1>
+  <p class="sub">Add, review, and manage the research corpus. A source is searchable only when its status is <b>ready</b>.</p>
+
+  <div class="panel">
+    <div class="row" style="justify-content: space-between">
+      <h3 style="margin:0">Corpus</h3>
+      <span class="notice" id="lastUpdated"></span>
+    </div>
+    <table>
+      <thead><tr><th>Source</th><th>Status</th><th class="hide-sm">Type</th><th class="hide-sm">Date</th><th class="hide-sm">Passages</th><th>License</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="listErr" class="err"></div>
+  </div>
+
+  <section id="detail" hidden>
+    <h2 id="dTitle"></h2>
+    <div class="panel">
+      <div id="dMeta" class="notice"></div>
+    </div>
+
+    <div class="panel">
+      <h3>License sign-off</h3>
+      <div id="dLicense"></div>
+      <div id="approveBox">
+        <p class="notice">Signing off records your name and today's date as the license verifier, then makes the source searchable.</p>
+        <div class="grid">
+          <label>License (as you verified it)<input id="aLicense" type="text"></label>
+          <label>Your full name<input id="aName" type="text" placeholder="e.g. John Patton"></label>
+        </div>
+        <div class="row" style="margin-top:10px"><button id="approve">Approve and activate</button><span id="aMsg" class="notice"></span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Manage</h3>
+      <div class="grid">
+        <label>Expires on (optional)<input id="eExp" type="date"></label>
+        <label>Superseded by<select id="eSup"></select></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="save" class="ghost">Save changes</button>
+        <button id="toggle" class="ghost"></button>
+        <span id="mMsg" class="notice"></span>
+      </div>
+      <div class="row" style="margin-top:16px">
+        <input id="delConfirm" type="text" placeholder="type the source ID to delete">
+        <button id="del" class="danger">Delete source</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="justify-content: space-between">
+        <h3 style="margin:0">Sections <span id="sCount" class="notice"></span></h3>
+        <div class="row"><button id="sPrev" class="ghost">Previous</button><button id="sNext" class="ghost">Next</button></div>
+      </div>
+      <div id="sections"></div>
+    </div>
+  </section>
+
+  <h2>Add a source</h2>
+  <div class="panel">
+    <form id="up">
+      <div class="grid">
+        <label>File (PDF, DOCX, TXT)<input id="uFile" type="file" accept=".pdf,.docx,.txt" required></label>
+        <label>Source ID (lowercase-with-hyphens)<input name="work_id" type="text" required placeholder="wwc-foundational-k3-2016"></label>
+        <label>Title<input name="title" type="text" required></label>
+        <label>Publisher<input name="publisher" type="text" required placeholder="IES What Works Clearinghouse"></label>
+        <label>URL<input name="url" type="text" required></label>
+        <label>Publication date (YYYY-MM)<input name="pub_date" type="text" required placeholder="2016-07"></label>
+        <label>Version / edition<input name="version" type="text"></label>
+        <label>Document type<select name="doc_type" required>
+          <option value="practice_guide">practice guide</option>
+          <option value="systematic_review">systematic review</option>
+          <option value="state_standard">state standard</option>
+          <option value="peer_reviewed_study">peer-reviewed study</option>
+          <option value="federal_report">federal report</option>
+          <option value="practitioner_resource">practitioner resource</option>
+        </select></label>
+        <label>Grade bands (comma-separated)<input name="grade_bands" type="text" placeholder="K-3"></label>
+        <label>Components (comma-separated)<input name="components" type="text" placeholder="phonics, fluency"></label>
+        <label>Expires on (optional)<input name="expires_on" type="date"></label>
+        <label>License (what the source's terms say)<input name="license" type="text"></label>
+        <label class="check"><input name="peer_reviewed" type="checkbox"> Peer reviewed</label>
+      </div>
+      <p class="notice">Uploaded files are stored in <code>corpus/</code>. After ingesting, the source waits for license sign-off before it becomes searchable. No student, teacher, or district data.</p>
+      <div class="row"><button id="upGo" type="submit">Ingest</button><span id="upErr" class="err"></span></div>
+    </form>
+    <div id="job" class="log" hidden></div>
+  </div>
+</main>
+<script>
+// All server text goes through textContent (CLAUDE.md rule 9).
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+const STATUS_CLASS = {ready: "ok", awaiting_license: "warn", superseded: "warn", expired: "warn", inactive: "warn", ingesting: "warn"};
+let sources = [];
+let current = null;
+let secOffset = 0;
+const SEC_PAGE = 20;
+
+async function api(method, url, body) {
+  const r = await fetch(url, body instanceof FormData ? {method, body} :
+    {method, headers: body ? {"Content-Type": "application/json"} : {}, body: body ? JSON.stringify(body) : undefined});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || r.status);
+  return data;
+}
+
+async function loadList(keep) {
+  try {
+    const res = await api("GET", "/api/sources");
+    sources = res.sources;
+    $("lastUpdated").textContent = "Content last updated: " + (res.content_last_updated ? res.content_last_updated.slice(0, 10) : "none active");
+    const rows = sources.map((s) => {
+      const tr = el("tr", "pick" + (current && s.work_id === current.work_id ? " sel" : ""));
+      const name = el("td");
+      name.append(el("div", null, s.title || s.work_id), el("div", "notice", s.work_id + (s.placeholder ? " · placeholder" : "")));
+      const st = el("td");
+      st.append(el("span", "tag " + (STATUS_CLASS[s.status] || (s.status.startsWith("failed") ? "bad" : "")), s.status));
+      const lic = el("td", null, s.license_verified_by ? `verified by ${s.license_verified_by} (${s.license_verified_on})` : "needs sign-off");
+      tr.append(name, st, el("td", "hide-sm", (s.doc_type || "").replace(/_/g, " ")), el("td", "hide-sm", s.pub_date || ""), el("td", "hide-sm", String(s.passages)), lic);
+      tr.addEventListener("click", () => select(s.work_id));
+      return tr;
+    });
+    $("rows").replaceChildren(...rows);
+    if (!sources.length) {
+      const td = el("td", "notice", "No sources yet. Add one below.");
+      td.colSpan = 6;
+      const tr = el("tr");
+      tr.append(td);
+      $("rows").append(tr);
+    }
+    if (keep && current) select(current.work_id, true);
+  } catch (e) {
+    $("listErr").textContent = "Couldn't load sources: " + e.message + " (is Docker running?)";
+  }
+}
+
+function select(workId, keepPage) {
+  current = sources.find((s) => s.work_id === workId);
+  if (!current) { $("detail").hidden = true; return; }
+  if (!keepPage) secOffset = 0;
+  document.querySelectorAll("tr.pick").forEach((tr) => tr.classList.remove("sel"));
+  $("detail").hidden = false;
+  $("dTitle").textContent = current.title || current.work_id;
+  const meta = $("dMeta");
+  meta.replaceChildren(
+    el("div", null, `${current.publisher || ""} · ${current.pub_date || ""} · ${(current.doc_type || "").replace(/_/g, " ")}`),
+    el("div", null, `ID ${current.work_id} · file ${current.source_key} · version ${current.version}`),
+    el("div", null, current.activated_at ? `Activated ${current.activated_at}` : "Never activated"),
+  );
+  if (current.url) {
+    const a = el("a", null, current.url);
+    a.href = current.url; a.target = "_blank"; a.rel = "noopener";
+    meta.append(a);
+  }
+  const lic = $("dLicense");
+  lic.replaceChildren(el("p", null, "License: " + (current.license || "not recorded")));
+  if (current.license_verified_by) {
+    lic.append(el("p", "tag ok", `Verified by ${current.license_verified_by} on ${current.license_verified_on}`));
+  }
+  if (current.license_recommendation) lic.append(el("p", "notice", "Claude's recommendation: " + current.license_recommendation));
+  if (current.license_evidence.length) {
+    const ul = el("ul", "evidence");
+    current.license_evidence.forEach((t) => ul.append(el("li", null, t)));
+    lic.append(el("div", "notice", "Evidence found:"), ul);
+  }
+  $("approveBox").hidden = current.status === "ready";
+  $("aLicense").value = (current.license || "").replace(/^DRAFT, unverified:\s*/, "");
+  $("aMsg").textContent = "";
+  $("eExp").value = current.expires_on || "";
+  const sup = $("eSup");
+  sup.replaceChildren(el("option", null, "(none)"));
+  sup.options[0].value = "";
+  sources.filter((s) => s.work_id !== current.work_id).forEach((s) => {
+    const o = el("option", null, s.work_id);
+    o.value = s.work_id;
+    sup.append(o);
+  });
+  sup.value = current.superseded_by || "";
+  $("toggle").textContent = current.status === "inactive" ? "Reactivate" : "Deactivate";
+  $("toggle").disabled = !["ready", "inactive", "superseded", "expired"].includes(current.status);
+  $("mMsg").textContent = "";
+  $("delConfirm").value = "";
+  loadSections();
+}
+
+async function loadSections() {
+  const box = $("sections");
+  box.replaceChildren(el("p", "notice", "Loading…"));
+  try {
+    const res = await api("GET", `/api/sources/${encodeURIComponent(current.work_id)}/sections?offset=${secOffset}&limit=${SEC_PAGE}`);
+    $("sCount").textContent = `${res.total ? secOffset + 1 : 0}–${Math.min(secOffset + SEC_PAGE, res.total)} of ${res.total}`;
+    $("sPrev").disabled = secOffset === 0;
+    $("sNext").disabled = secOffset + SEC_PAGE >= res.total;
+    box.replaceChildren(...res.sections.map((s) => {
+      const d = el("div", "panel");
+      const pages = s.page ? (s.page_end && s.page_end !== s.page ? `pp. ${s.page}–${s.page_end}` : `p. ${s.page}`) : "";
+      const h = el("div", "row");
+      h.append(el("strong", null, s.section_path || "(no heading)"), el("span", "tag", pages), el("span", "tag", `${s.words} words`),
+        el("span", "tag " + (s.hash_ok ? "ok" : "bad"), s.hash_ok ? "hash ok" : "HASH MISMATCH"), el("span", "notice", s.section_id));
+      d.append(h, el("blockquote", null, s.text));
+      return d;
+    }));
+  } catch (e) {
+    box.replaceChildren(el("p", "err", "Couldn't load sections: " + e.message));
+  }
+}
+
+$("sPrev").addEventListener("click", () => { secOffset = Math.max(0, secOffset - SEC_PAGE); loadSections(); });
+$("sNext").addEventListener("click", () => { secOffset += SEC_PAGE; loadSections(); });
+
+$("approve").addEventListener("click", async () => {
+  $("approve").disabled = true;
+  $("aMsg").textContent = "Activating…";
+  try {
+    await api("POST", `/api/sources/${encodeURIComponent(current.work_id)}/approve`, {name: $("aName").value, license: $("aLicense").value});
+    $("aMsg").textContent = "Approved: the source is now searchable.";
+    await loadList(true);
+  } catch (e) {
+    $("aMsg").textContent = "";
+    $("aMsg").append(el("span", "err", e.message));
+  } finally {
+    $("approve").disabled = false;
+  }
+});
+
+$("save").addEventListener("click", async () => {
+  try {
+    await api("PATCH", `/api/sources/${encodeURIComponent(current.work_id)}`, {expires_on: $("eExp").value || null, superseded_by: $("eSup").value || null});
+    $("mMsg").textContent = "Saved.";
+    await loadList(true);
+  } catch (e) { $("mMsg").textContent = ""; $("mMsg").append(el("span", "err", e.message)); }
+});
+
+$("toggle").addEventListener("click", async () => {
+  try {
+    await api("POST", `/api/sources/${encodeURIComponent(current.work_id)}/status`, {active: current.status === "inactive"});
+    await loadList(true);
+  } catch (e) { $("mMsg").textContent = ""; $("mMsg").append(el("span", "err", e.message)); }
+});
+
+$("del").addEventListener("click", async () => {
+  if ($("delConfirm").value !== current.work_id) {
+    $("mMsg").textContent = "Type the source ID exactly to confirm.";
+    return;
+  }
+  try {
+    await api("DELETE", `/api/sources/${encodeURIComponent(current.work_id)}?confirm=${encodeURIComponent(current.work_id)}`);
+    current = null;
+    $("detail").hidden = true;
+    await loadList();
+  } catch (e) { $("mMsg").textContent = ""; $("mMsg").append(el("span", "err", e.message)); }
+});
+
+$("up").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("upErr").textContent = "";
+  const f = new FormData(ev.target);
+  const list = (v) => (v || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const meta = {
+    work_id: f.get("work_id").trim(), title: f.get("title").trim(), publisher: f.get("publisher").trim(),
+    url: f.get("url").trim(), pub_date: f.get("pub_date").trim(), version: f.get("version").trim(),
+    doc_type: f.get("doc_type"), peer_reviewed: f.get("peer_reviewed") === "on",
+    grade_bands: list(f.get("grade_bands")), components: list(f.get("components")),
+    expires_on: f.get("expires_on") || null, license: f.get("license").trim(),
+  };
+  const body = new FormData();
+  body.append("file", $("uFile").files[0]);
+  body.append("meta", JSON.stringify(meta));
+  $("upGo").disabled = true;
+  const log = $("job");
+  log.hidden = false;
+  log.textContent = "Uploading…";
+  try {
+    const {job_id} = await api("POST", "/api/sources", body);
+    while (true) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const job = await api("GET", `/api/jobs/${job_id}`);
+      log.textContent = job.log.join("\n");
+      if (job.state !== "running") break;
+    }
+    await loadList();
+  } catch (e) {
+    $("upErr").textContent = e.message;
+  } finally {
+    $("upGo").disabled = false;
+  }
+});
+
+loadList();
+</script>
+</body>
+</html>
