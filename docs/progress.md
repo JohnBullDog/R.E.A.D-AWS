@@ -2,6 +2,125 @@
 
 Newest first. Each entry: what was done, how it was verified, and what's next.
 
+## 2026-10-09 — Session 3f: evidence trails, research-only suggestions, Cloudscape UI (D87-D89)
+
+**Design** (John, from preview options on a canvas artifact): A's at-a-glance (checks, coverage
+grid, improve next) + B's four-step evidence trail (your material -> what it shows -> what research
+says -> conclusion), research shown as full scrollable sections with the cited part highlighted,
+improvements only from research, styled on Cloudscape. Built: bibliography filter (D87), trail +
+research-check pipeline (D88), Review page results, shared app shell and Cloudscape styles for all
+four pages (D89), reopen-by-id. 164 tests pass; ruff clean. Checked in Chrome (dark mode, 1023 px
+window): layout, highlights, scroll-to-highlight, no horizontal overflow, other pages consistent.
+
+**Live run (digraph unit):** 7 trails laid out; phrases highlight; improvements show research
+sections with limited/strong badges. Fixed during the check: alert layout, duplicate "Advisory
+only", non-wrapping "shows" lines, columns centred off-screen, stale cached CSS, side navigation scrolling away (now sticky, all pages), "Show source text" overlapping grade badges, an off-topic
+research conclusion left standing.
+
+**Open:** verdicts vary run to run (objective/sequence met vs partly; standards verdict failed
+this run); research matches are mostly 'limited' with the 4 placeholder sources; reviews now take
+~4-4.5 min and ~110 calls (~45 cents); "shows" sentences are wordy ("This passage shows..."). No
+download/print of the report yet.
+
+## 2026-10-09 — Session 3e: research-in-observation, graded evidence, tighter 'partly' (D85-D86)
+
+**Live, digraph unit:** no observation cites research (the last resort dropped 5 sentences that
+reused research wording); objective partly, check-learning partly, support partly (all match the
+planted unit), alignment met, sequence / practice time / standards partly; oral language 'partly'
+in 4 sections (was 8); summary leads with the whole-document gaps. 160 tests pass.
+
+**Cost of the per-question design:** 99 model calls, 238 s (about 4 min) per review, roughly 35
+cents. Next lever: fewer section questions per section (a gentler relevance filter) or a cheaper
+model for the small calls (needs the Amazon-model rule check). One summary takeaway began with
+"However," (copied from a verdict sentence).
+
+## 2026-10-09 — Session 3d: per-question section calls (D84), live check
+
+**Live, digraph unit:** every section filled (3-6 findings each, was 0-1), no failed questions,
+all 7 verdicts and the summary generated. 76 model calls, 171 s (was ~25 calls, 85-150 s).
+Verdicts: objective met (overview M4 accepted), alignment met, sequence partly, check-learning
+missing, support partly (teacher notes), practice time partly, standards partly.
+
+**New weakness:** asking every question of every section makes 'partly' common for barely-related
+questions (oral language 'partly' in all 8 sections, e.g. the family letter); 'no' is dropped but
+weak 'partly' is not. Options: drop 'partly' for a question whose observation names no specific
+activity, or bring back a lower-threshold triage. Some sentences still open with the question
+(kept by the last resort). Objective verdict depends on Addison's wording.
+
+## 2026-10-08 — Session 3c: fixes from John's test run (stopped mid-work)
+
+**Done** (158 tests pass, all uncommitted): presence questions now find passages first, then
+confirm each on its own ("does it explicitly do at least part of it?"), and the verdict must
+follow the confirmed set; "missing" verdicts drop chips that point at nothing; partly/missing
+verdicts need a research suggestion (last resort keeps the verdict without one); verdicts need an
+explanation; sentences may not open with the question's words (last resort keeps them); the copy
+rule only checks text the call was shown; summary/verdict/section salvage gaps fixed. Live: all 7
+verdicts + summary OK; support now partly (teacher notes), check-learning partly, objective met
+(M4 overview passes the loosened check; question wording is Addison's).
+
+**NEXT (done 2026-10-09, D84; live test pending, needs ~3 GB free RAM for Docker):** section calls collapse to 1 finding when all 7 questions + research are
+in one call (probe: same prompt gave 1, then 7 findings). Plan: one call per section question
+with only that question's research, like D66 for verdicts; restructure review_section in
+review_run.py into (section, question) jobs and merge per section. Until then sections often show
+0-1 findings. Then re-test live (D81-D84 logged) (find+confirm, missing-verdict chips/suggestions,
+answer-every-question rule) in decisions.md.
+
+## 2026-10-08 — Session 3b: hybrid whole-document pass (D73-D80)
+
+**Done** (John chose the hybrid, then the JSON-text fallback): section calls answer section
+questions only, every question offered everywhere (triage off), evidence-first example. Whole-
+document questions: read whole up to 25,000 words (one call per question), else chunks of whole
+sections answer per question and a merge call decides from the answers plus the cited passages.
+Verdicts: at most 3 sentences and 5 cited parts; question kinds (presence vs judgment); presence
+verdicts get an evidence check (small call on the cited passages alone) and never see the
+teacher's goal. Nova tool errors: topK 1, 3000+ max tokens, JSON-text fallback validated the same
+way. Last-resort salvage for over-citing and failed evidence. Checklist dev-0.4 (kinds). 151
+unit tests pass; ruff clean.
+
+**Size test** (D80): no quality cliff up to 50K words; planted items found 31/36, no-plant
+controls correct 11/12.
+
+**Live, digraph unit** (final runs): single pass 6/7 verdicts (support lost to Bedrock
+throttling because two reviews ran at once); forced chunking (3 parts) 7/7: objective partly,
+check-learning missing, support partly, alignment met, sequence partly, practice time partly,
+standards partly. Explicit modeling found on Days 1-4 (was missed on Day 1). About 25 calls,
+1.5-3 min per review; Nova tool errors still hit about 3-4 calls per review (each costs ~25 s
+before the fallback).
+
+**John's test run (later, same day):** summary, alignment verdict, and Day 3 were lost to three salvage gaps (summary had no last resort; trimming an over-cited verdict dropped a part it quoted; a non-list suggestions field from a JSON-text reply failed a section and the retry restated everything). All three fixed with tests (154 pass). Also seen: support came back missing (expected partly); missing verdicts show part chips that point at nothing; the check-learning "missing" verdict had no suggestion.
+
+**Open:** throttling with concurrent reviews (lower WORKERS or add backoff); support verdict
+varies between runs (missing vs partly); objective question wording ("in a way the teacher could
+check") and the question kinds are Addison's; section observations still often open by echoing
+the question; review latency is up (1.5-3 min). Spend today about $4-5 (estimate).
+
+## 2026-10-08 — Session 3a: the five review fixes (D68-D72)
+
+**Done** (John OK'd all five): goal labeled as not part of the material; met/partly verdicts
+must cite reported material; objective / check-learning / support judged by the model; DOCX
+heading levels drive sectioning; observations must name evidence (restate check + salvage).
+Files: `review.py`, `review_run.py`, `extract.py`, `dev_server.py`, `rubric/checklist.json`
+(dev-0.3), `tests/test_review.py`. 142 unit tests pass; ruff clean.
+
+**Live re-test** on the same digraph unit (3 full runs + one 2-section probe, about 60 cents):
+run 1 failed 6 of 8 sections (restate check too strict), loosened; run 2 lost Day 4 to a repeat
+restatement and the standards verdict to a Bedrock glitch, added salvage; run 3: 8 sections
+(was 15), 8/8 sections and 7/7 whole-document checks valid, 20 calls, 73 s.
+
+| Planted | Before | Now |
+|---|---|---|
+| No learning objective | met | partly (overview called a stated objective) |
+| No real check of learning | met | partly; takeaway asks for explicit assessment |
+| Thin support | met | partly |
+| Corrective feedback (sop -> shop) | partly | yes |
+| Word ladders (Day 4) | no findings | found |
+| Wrong "beginning and end" takeaway | yes | gone |
+| Explicit modeling, Day 1 | praised | only Day 2 (triage didn't offer it for Day 1, D64) |
+
+**Still weak:** combine observations repeat themselves per section; some observations still
+open by echoing the question before the evidence; "missing objective" is 'partly', not 'none';
+Family letter / Teacher notes / Day 5 often skip the doc list (left out as 'unanswered').
+
 ## 2026-10-07 — Session 2h: review v2 tested on a new file; session hand-off
 
 **Tested** review v2 on a synthetic 1st-grade digraph unit (DOCX, 1,570 words, 15 sections,

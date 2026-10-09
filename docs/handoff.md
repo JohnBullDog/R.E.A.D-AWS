@@ -1,5 +1,10 @@
 # Hand-off — end of session 2 (2026-10-07)
 
+> **Update 2026-10-08:** the five review fixes below are done (Session 3a), and the whole-document
+> checks were rebuilt as a hybrid single-pass / chunked design with an evidence check and a
+> JSON-text fallback for Nova tool errors (Session 3b, D73-D80). Read `docs/progress.md` Session
+> 3b for results and open items. Later sessions (3c-3f, 2026-10-09) added per-question section calls, graded evidence, evidence trails, research-only suggestions, and the Cloudscape UI (D81-D89); see progress.md. All uncommitted; 164 tests pass.
+
 Read this first next session, then `docs/progress.md` (newest entry) and `docs/open-questions.md`.
 
 ## Where things stand
@@ -10,7 +15,7 @@ Read this first next session, then `docs/progress.md` (newest entry) and `docs/o
 | Sources | Ingest + manage from the Sources page. 4 placeholder sources in `corpus/` (local use only, not in git). |
 | Material review v2 | Built and committed (`228fa48`). Sections, triage, whole-document checks, cited summary. **Runs cleanly but its whole-document verdicts are not trustworthy yet** — see "Review test results" below. |
 | Checklist | `rubric/checklist.json` is a **DEVELOPMENT PLACEHOLDER**. Addison must rewrite every question and decide scope / core / combine rules. |
-| Tests | 136 unit tests pass (`pytest`). |
+| Tests | 164 unit tests pass (`pytest`). |
 | Git | `main` is **1 commit ahead of GitHub** (`228fa48`, review v2) — not pushed. Run the leak check (no account ID, no `corpus/`, no `data/`, no personal email, no co-author lines) before pushing. This file and the progress / open-questions edits from this hand-off are **uncommitted**. |
 | AWS | Nothing deployed. No OpenSearch Serverless collection exists, so nothing bills while idle. Only Bedrock calls cost money (this session's review runs: roughly $1 total). |
 
@@ -66,7 +71,7 @@ The summary missed the missing objective and missing assessment, and one takeawa
 6. **Sectioning ignores Word heading levels**: 15 sections instead of ~9; parent headings
    ("Day 1") missing from titles; one merge crossed a day boundary ("Badge ceremony / Day 4…").
 
-### Proposed fixes (waiting on John's OK — none started)
+### Proposed fixes — DONE 2026-10-08 (D68-D72; results in progress.md, Session 3a)
 
 1. Label the goal in the section prompt as "the teacher's goal, not part of the material"; ask
    "does the material itself state…".
