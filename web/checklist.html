@@ -8,11 +8,13 @@
 </head>
 <body>
 <header class="top">
-  <span class="brand">R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></span>
-  <nav><a href="/">Test</a><a href="/review">Review</a><a href="/sources">Sources</a><a href="/checklist" class="on">Checklist</a></nav>
-  <span class="devtag">local dev</span>
+  <span class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path><path d="M4 5.5v16"></path><path d="M9 8h7M9 12h5"></path></svg>R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></span>
+  <span class="devtag">Local dev</span>
 </header>
+<div class="app">
+<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="/">Ask a question</a><a href="/review">Review material</a><a href="/sources">Sources</a><a href="/checklist" class="on" aria-current="page">Checklist</a></nav>
 <main>
+  <nav class="crumbs" aria-label="Breadcrumbs"><a href="/">R.E.A.D.</a><span aria-hidden="true">›</span><span>Checklist</span></nav>
   <h1>Review checklist</h1>
   <p class="sub">The questions the Review page asks of every piece of material. Each has a grade band (questions outside the material's grade are skipped) and a search phrase used to find the research.</p>
   <div class="disclaimer"><strong id="status"></strong> <span id="note"></span></div>
@@ -24,6 +26,7 @@
     <span id="msg" class="notice"></span>
   </div>
 </main>
+</div>
 <script>
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -72,8 +75,10 @@ function render() {
       field("Grade band", c.grade_band, "grade_band", c),
       select("Scope", c.scope, "scope", c, [["section", "Section (asked per section)"], ["document", "Whole document"]]));
     if (c.scope === "document") {
-      g.append(select("Combine sections", c.combine, "combine", c,
-        [["any", "Met if any section does it"], ["all", "Met only if every section does"], ["judge", "Model judges from the answers"]]));
+      g.append(select("Combine parts (long material only)", c.combine, "combine", c,
+        [["any", "Met if any part does it"], ["all", "Met only if every part does"], ["judge", "Model judges from the answers"]]),
+        select("Kind of question", c.evidence, "evidence", c,
+        [["judgment", "Judgment (how well, across the material)"], ["explicit", "Presence (must be stated or planned in the material)"]]));
       const core = el("label", "check");
       const cb = el("input");
       cb.type = "checkbox"; cb.checked = !!c.core;

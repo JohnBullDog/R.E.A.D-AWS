@@ -8,11 +8,13 @@
 </head>
 <body>
 <header class="top">
-  <span class="brand">R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></span>
-  <nav><a href="/" class="on">Test</a><a href="/review">Review</a><a href="/sources">Sources</a><a href="/checklist">Checklist</a></nav>
-  <span class="devtag">local dev</span>
+  <span class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path><path d="M4 5.5v16"></path><path d="M9 8h7M9 12h5"></path></svg>R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></span>
+  <span class="devtag">Local dev</span>
 </header>
+<div class="app">
+<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="/" class="on" aria-current="page">Ask a question</a><a href="/review">Review material</a><a href="/sources">Sources</a><a href="/checklist">Checklist</a></nav>
 <main>
+  <nav class="crumbs" aria-label="Breadcrumbs"><a href="/">R.E.A.D.</a><span aria-hidden="true">›</span><span>Ask a question</span></nav>
   <h1>Ask a Science of Reading question</h1>
   <p class="sub">Answers come only from the research sources listed under each answer. Click a citation number to read the exact source text.</p>
 
@@ -75,6 +77,7 @@
     <pre class="debug" id="debug"></pre>
   </section>
 </main>
+</div>
 <script>
 // Everything from the corpus or the model is rendered with textContent (CLAUDE.md rule 9).
 // Reference text shown here always comes from /search (canonical, hash-checked), never from the model.
