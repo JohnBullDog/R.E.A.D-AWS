@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>R.E.A.D. Sources</title>
-<link rel="stylesheet" href="/style.css">
-<script src="/auth.js"></script>
+<script>/* relative links resolve under /READ/ when served from bucklersoftware.com/READ */(function(){var b=document.createElement("base");b.href=/^\/read(\/|$)/i.test(location.pathname)?"/READ/":"/";document.head.appendChild(b);})();</script>
+<link rel="stylesheet" href="style.css">
+<script src="auth.js"></script>
 </head>
 <body>
 <header class="top">
@@ -13,9 +14,9 @@
   <span class="devtag">Local dev</span>
 </header>
 <div class="app">
-<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="/">Ask a question</a><a href="/review">Review material</a><a href="/sources" class="on" aria-current="page">Sources</a><a href="/checklist">Checklist</a></nav>
+<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="./">Ask a question</a><a href="review">Review material</a><a href="sources" class="on" aria-current="page">Sources</a><a href="checklist">Checklist</a></nav>
 <main>
-  <nav class="crumbs" aria-label="Breadcrumbs"><a href="/">R.E.A.D.</a><span aria-hidden="true">›</span><span>Sources</span></nav>
+  <nav class="crumbs" aria-label="Breadcrumbs"><a href="./">R.E.A.D.</a><span aria-hidden="true">›</span><span>Sources</span></nav>
   <h1>Sources</h1>
   <p class="sub">Add, review, and manage the research corpus. A source is searchable only when its status is <b>ready</b>.</p>
 
@@ -133,7 +134,7 @@ async function api(method, url, body) {
 
 async function loadList(keep) {
   try {
-    const res = await api("GET", "/api/sources");
+    const res = await api("GET", "api/sources");
     sources = res.sources;
     $("lastUpdated").textContent = "Content last updated: " + (res.content_last_updated ? res.content_last_updated.slice(0, 10) : "none active");
     const rows = sources.map((s) => {
@@ -214,7 +215,7 @@ async function loadSections() {
   const box = $("sections");
   box.replaceChildren(el("p", "notice", "Loading…"));
   try {
-    const res = await api("GET", `/api/sources/${encodeURIComponent(current.work_id)}/sections?offset=${secOffset}&limit=${SEC_PAGE}`);
+    const res = await api("GET", `api/sources/${encodeURIComponent(current.work_id)}/sections?offset=${secOffset}&limit=${SEC_PAGE}`);
     $("sCount").textContent = `${res.total ? secOffset + 1 : 0}–${Math.min(secOffset + SEC_PAGE, res.total)} of ${res.total}`;
     $("sPrev").disabled = secOffset === 0;
     $("sNext").disabled = secOffset + SEC_PAGE >= res.total;
@@ -239,7 +240,7 @@ $("approve").addEventListener("click", async () => {
   $("approve").disabled = true;
   $("aMsg").textContent = "Activating…";
   try {
-    await api("POST", `/api/sources/${encodeURIComponent(current.work_id)}/approve`, {name: $("aName").value, license: $("aLicense").value});
+    await api("POST", `api/sources/${encodeURIComponent(current.work_id)}/approve`, {name: $("aName").value, license: $("aLicense").value});
     $("aMsg").textContent = "Approved: the source is now searchable.";
     await loadList(true);
   } catch (e) {
@@ -252,7 +253,7 @@ $("approve").addEventListener("click", async () => {
 
 $("save").addEventListener("click", async () => {
   try {
-    await api("PATCH", `/api/sources/${encodeURIComponent(current.work_id)}`, {expires_on: $("eExp").value || null, superseded_by: $("eSup").value || null});
+    await api("PATCH", `api/sources/${encodeURIComponent(current.work_id)}`, {expires_on: $("eExp").value || null, superseded_by: $("eSup").value || null});
     $("mMsg").textContent = "Saved.";
     await loadList(true);
   } catch (e) { $("mMsg").textContent = ""; $("mMsg").append(el("span", "err", e.message)); }
@@ -260,7 +261,7 @@ $("save").addEventListener("click", async () => {
 
 $("toggle").addEventListener("click", async () => {
   try {
-    await api("POST", `/api/sources/${encodeURIComponent(current.work_id)}/status`, {active: current.status === "inactive"});
+    await api("POST", `api/sources/${encodeURIComponent(current.work_id)}/status`, {active: current.status === "inactive"});
     await loadList(true);
   } catch (e) { $("mMsg").textContent = ""; $("mMsg").append(el("span", "err", e.message)); }
 });
@@ -271,7 +272,7 @@ $("del").addEventListener("click", async () => {
     return;
   }
   try {
-    await api("DELETE", `/api/sources/${encodeURIComponent(current.work_id)}?confirm=${encodeURIComponent(current.work_id)}`);
+    await api("DELETE", `api/sources/${encodeURIComponent(current.work_id)}?confirm=${encodeURIComponent(current.work_id)}`);
     current = null;
     $("detail").hidden = true;
     await loadList();
@@ -298,10 +299,10 @@ $("up").addEventListener("submit", async (ev) => {
   log.hidden = false;
   log.textContent = "Uploading…";
   try {
-    const {job_id} = await api("POST", "/api/sources", body);
+    const {job_id} = await api("POST", "api/sources", body);
     while (true) {
       await new Promise((r) => setTimeout(r, 1000));
-      const job = await api("GET", `/api/jobs/${job_id}`);
+      const job = await api("GET", `api/jobs/${job_id}`);
       log.textContent = job.log.join("\n");
       if (job.state !== "running") break;
     }

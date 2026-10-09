@@ -49,7 +49,7 @@ def test_pages_and_auth_script_are_served(env):
     c = TestClient(create_app(env))
     for path in ("/", "/sources", "/review", "/checklist"):
         r = c.get(path)
-        assert r.status_code == 200 and '<script src="/auth.js"></script>' in r.text
+        assert r.status_code == 200 and '<script src="auth.js"></script>' in r.text
     assert "X-Read-Passcode" in c.get("/auth.js").text
 
 

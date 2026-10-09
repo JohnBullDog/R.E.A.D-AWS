@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>R.E.A.D. Test</title>
-<link rel="stylesheet" href="/style.css">
-<script src="/auth.js"></script>
+<script>/* relative links resolve under /READ/ when served from bucklersoftware.com/READ */(function(){var b=document.createElement("base");b.href=/^\/read(\/|$)/i.test(location.pathname)?"/READ/":"/";document.head.appendChild(b);})();</script>
+<link rel="stylesheet" href="style.css">
+<script src="auth.js"></script>
 </head>
 <body>
 <header class="top">
@@ -13,9 +14,9 @@
   <span class="devtag">Local dev</span>
 </header>
 <div class="app">
-<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="/" class="on" aria-current="page">Ask a question</a><a href="/review">Review material</a><a href="/sources">Sources</a><a href="/checklist">Checklist</a></nav>
+<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="./" class="on" aria-current="page">Ask a question</a><a href="review">Review material</a><a href="sources">Sources</a><a href="checklist">Checklist</a></nav>
 <main>
-  <nav class="crumbs" aria-label="Breadcrumbs"><a href="/">R.E.A.D.</a><span aria-hidden="true">›</span><span>Ask a question</span></nav>
+  <nav class="crumbs" aria-label="Breadcrumbs"><a href="./">R.E.A.D.</a><span aria-hidden="true">›</span><span>Ask a question</span></nav>
   <h1>Ask a Science of Reading question</h1>
   <p class="sub">Answers come only from the research sources listed under each answer. Click a citation number to read the exact source text.</p>
 
@@ -282,7 +283,7 @@ async function getAnswer() {
   $("answer").replaceChildren(el("p", "notice", "Writing the answer from these sources…"));
   $("answerBox").hidden = false;
   try {
-    const res = await post("/api/answer", {query: lastSearch.query, refs: lastSearch.excerpts.map((x) => x.ref), debug: $("dbg").checked});
+    const res = await post("api/answer", {query: lastSearch.query, refs: lastSearch.excerpts.map((x) => x.ref), debug: $("dbg").checked});
     renderAnswer(res);
     debugData.answer = res.debug || null;
     if (res.omitted && res.omitted.length) debugData.omitted = res.omitted;
@@ -304,7 +305,7 @@ $("ask").addEventListener("submit", async (ev) => {
   refNum = {};
   try {
     const t0 = performance.now();
-    const res = await post("/api/search", {query: q, debug: $("dbg").checked, ...searchOptions()});
+    const res = await post("api/search", {query: q, debug: $("dbg").checked, ...searchOptions()});
     lastSearch = res;
     showEnvelope(res);
     debugData.search = res.debug || null;

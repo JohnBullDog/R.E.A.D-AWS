@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>R.E.A.D. Review</title>
-<link rel="stylesheet" href="/style.css">
-<script src="/auth.js"></script>
+<script>/* relative links resolve under /READ/ when served from bucklersoftware.com/READ */(function(){var b=document.createElement("base");b.href=/^\/read(\/|$)/i.test(location.pathname)?"/READ/":"/";document.head.appendChild(b);})();</script>
+<link rel="stylesheet" href="style.css">
+<script src="auth.js"></script>
 </head>
 <body>
 <header class="top">
@@ -13,9 +14,9 @@
   <span class="devtag">Local dev</span>
 </header>
 <div class="app">
-<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="/">Ask a question</a><a href="/review" class="on" aria-current="page">Review material</a><a href="/sources">Sources</a><a href="/checklist">Checklist</a></nav>
+<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="./">Ask a question</a><a href="review" class="on" aria-current="page">Review material</a><a href="sources">Sources</a><a href="checklist">Checklist</a></nav>
 <main>
-  <nav class="crumbs" aria-label="Breadcrumbs"><a href="/">R.E.A.D.</a><span aria-hidden="true">›</span><span>Review material</span></nav>
+  <nav class="crumbs" aria-label="Breadcrumbs"><a href="./">R.E.A.D.</a><span aria-hidden="true">›</span><span>Review material</span></nav>
   <h1>Review teaching material</h1>
   <p class="sub">Upload a lesson plan, unit, worksheet, or slides. R.E.A.D. confirms your goal, checks the whole material against the checklist, and shows the evidence behind every conclusion: your material's words, what the research says, and research-backed ways to improve.</p>
 
@@ -103,7 +104,7 @@ $("up").addEventListener("submit", async (ev) => {
   $("readBtn").disabled = true;
   $("upMsg").textContent = "Reading the material and working out the goal…";
   try {
-    const res = await call("POST", "/api/review", body);
+    const res = await call("POST", "api/review", body);
     rid = res.review_id;
     const g = res.goal;
     $("gType").value = g.material_type; $("gBand").value = g.grade_band; $("gFocus").value = g.focus; $("gObj").value = g.objective;
@@ -138,7 +139,7 @@ $("up").addEventListener("submit", async (ev) => {
   const id = new URLSearchParams(location.search).get("review");
   if (!id || !/^[0-9a-f]{8,64}$/.test(id)) return;
   try {
-    const st = await call("GET", `/api/review/${id}`);
+    const st = await call("GET", `api/review/${id}`);
     if (st.state !== "done") return;
     rid = id;
     materialParts = Object.fromEntries(st.material.parts.map((p) => [p.id, p]));
@@ -155,16 +156,16 @@ $("runBtn").addEventListener("click", async () => {
     const kept = [...document.querySelectorAll("#docQs input:checked")].map((c) => c.dataset.id);
     const goal = {material_type: $("gType").value, grade_band: $("gBand").value, focus: $("gFocus").value,
                   objective: $("gObj").value, doc_questions: kept};
-    await call("POST", `/api/review/${rid}/run`, goal);
+    await call("POST", `api/review/${rid}/run`, goal);
     $("step3").hidden = false;
     $("results").replaceChildren();
     while (true) {
       await new Promise((r) => setTimeout(r, 1500));
-      const st = await call("GET", `/api/review/${rid}`);
+      const st = await call("GET", `api/review/${rid}`);
       materialParts = Object.fromEntries(st.material.parts.map((p) => [p.id, p]));
       if (st.state === "failed") { $("progress").textContent = ""; $("progress").append(el("span", "err", "The review failed: " + st.error)); break; }
       if (st.state === "done") {
-        history.replaceState(null, "", `/review?review=${rid}`);
+        history.replaceState(null, "", `review?review=${rid}`);
         $("step1").hidden = true; $("step2").hidden = true;
         renderResults(st.result, st.disclaimer);
         break;
@@ -518,7 +519,7 @@ function renderResults(r, disclaimer) {
   t.firstChild.style.margin = "0";
   const again = el("button", "ghost", "Review new material");
   again.type = "button";
-  again.addEventListener("click", () => { location.href = "/review"; });
+  again.addEventListener("click", () => { location.href = "review"; });
   head.append(t, again);
   box.append(head);
 

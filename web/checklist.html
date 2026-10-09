@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>R.E.A.D. Checklist</title>
-<link rel="stylesheet" href="/style.css">
-<script src="/auth.js"></script>
+<script>/* relative links resolve under /READ/ when served from bucklersoftware.com/READ */(function(){var b=document.createElement("base");b.href=/^\/read(\/|$)/i.test(location.pathname)?"/READ/":"/";document.head.appendChild(b);})();</script>
+<link rel="stylesheet" href="style.css">
+<script src="auth.js"></script>
 </head>
 <body>
 <header class="top">
@@ -13,9 +14,9 @@
   <span class="devtag">Local dev</span>
 </header>
 <div class="app">
-<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="/">Ask a question</a><a href="/review">Review material</a><a href="/sources">Sources</a><a href="/checklist" class="on" aria-current="page">Checklist</a></nav>
+<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="./">Ask a question</a><a href="review">Review material</a><a href="sources">Sources</a><a href="checklist" class="on" aria-current="page">Checklist</a></nav>
 <main>
-  <nav class="crumbs" aria-label="Breadcrumbs"><a href="/">R.E.A.D.</a><span aria-hidden="true">›</span><span>Checklist</span></nav>
+  <nav class="crumbs" aria-label="Breadcrumbs"><a href="./">R.E.A.D.</a><span aria-hidden="true">›</span><span>Checklist</span></nav>
   <h1>Review checklist</h1>
   <p class="sub">The questions the Review page asks of every piece of material. Each has a grade band (questions outside the material's grade are skipped) and a search phrase used to find the research.</p>
   <div class="disclaimer"><strong id="status"></strong> <span id="note"></span></div>
@@ -103,14 +104,14 @@ $("add").addEventListener("click", () => {
 $("save").addEventListener("click", async () => {
   $("msg").textContent = "";
   try {
-    const r = await fetch("/api/checklist", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)});
+    const r = await fetch("api/checklist", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)});
     const res = await r.json();
     if (!r.ok) throw new Error(res.detail || r.status);
     $("msg").textContent = "Saved.";
   } catch (e) { $("msg").append(el("span", "err", e.message)); }
 });
 
-fetch("/api/checklist").then((r) => r.json()).then((d) => { data = d; render(); });
+fetch("api/checklist").then((r) => r.json()).then((d) => { data = d; render(); });
 </script>
 </body>
 </html>

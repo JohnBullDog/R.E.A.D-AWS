@@ -55,8 +55,9 @@
   }
 
   window.fetch = async function (url, opts) {
-    const path = typeof url === "string" ? url : url.url;
-    if (!path.startsWith("/api")) return plain(url, opts);
+    // pages use relative addresses so the site also works under a prefix (bucklersoftware.com/READ/)
+    const path = new URL(typeof url === "string" ? url : url.url, location.href).pathname;
+    if (!/(^|\/)api\//.test(path)) return plain(url, opts);
     for (let attempt = 0; ; attempt++) {
       const o = Object.assign({}, opts || {});
       const headers = new Headers(o.headers || {});
