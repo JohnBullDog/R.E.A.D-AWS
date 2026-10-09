@@ -4,31 +4,78 @@
     {
       "Sid": "InvokeModels",
       "Effect": "Allow",
-      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Rerank"],
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream",
+        "bedrock:Rerank"
+      ],
       "Resource": "*"
     },
     {
-      "Sid": "OpenSearchData",
+      "Sid": "AuroraDataApi",
       "Effect": "Allow",
-      "Action": "aoss:APIAccessAll",
-      "Resource": "arn:aws:aoss:us-east-1:ACCOUNT_ID:collection/*"
+      "Action": [
+        "rds-data:ExecuteStatement",
+        "rds-data:BatchExecuteStatement"
+      ],
+      "Resource": "arn:aws:rds:us-east-1:ACCOUNT_ID:cluster:read-poc-*"
+    },
+    {
+      "Sid": "AuroraSecret",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:rds!*"
+    },
+    {
+      "Sid": "Passcode",
+      "Effect": "Allow",
+      "Action": "ssm:GetParameter",
+      "Resource": "arn:aws:ssm:us-east-1:ACCOUNT_ID:parameter/read-poc/*"
+    },
+    {
+      "Sid": "StartWorker",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:us-east-1:ACCOUNT_ID:function:read-poc-*"
     },
     {
       "Sid": "ProjectObjects",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
       "Resource": "arn:aws:s3:::read-poc-*/*"
+    },
+    {
+      "Sid": "ProjectBuckets",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::read-poc-*"
     },
     {
       "Sid": "ProjectTables",
       "Effect": "Allow",
-      "Action": ["dynamodb:GetItem", "dynamodb:BatchGetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"],
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:BatchWriteItem"
+      ],
       "Resource": "arn:aws:dynamodb:us-east-1:ACCOUNT_ID:table/read-poc-*"
     },
     {
       "Sid": "Logs",
       "Effect": "Allow",
-      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
       "Resource": "*"
     }
   ]

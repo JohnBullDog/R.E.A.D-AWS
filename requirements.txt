@@ -1,6 +1,6 @@
 boto3==1.40.45
-opensearch-py==3.0.0
 pdfplumber==0.11.7
 python-docx==1.2.0
 charset-normalizer==3.4.3
 python-pptx==1.0.2
+numpy==2.4.6

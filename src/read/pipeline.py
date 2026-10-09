@@ -1,4 +1,4 @@
-"""Ingest and manage sources: used by scripts/ingest.py and the local dev server.
+"""Ingest and manage sources: used by scripts/ingest.py, the API, and the worker Lambda.
 
 Steps for ingest_file: check metadata -> version ID -> extract -> write canonical text
 (write-once) -> chunk (offsets verified) -> embed -> index passages -> write sections ->
@@ -8,14 +8,11 @@ verify counts -> license gate -> activate. A source is searchable only after act
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
-from opensearchpy import helpers
-
 from read.chunk import build_chunks
 from read.embed import EMBED_MODEL, embed
 from read.extract import Unsupported, extract
 from read.ingest import check_meta, license_ok, local_version_id, now_iso, work_record
 from read.service import Stores
-from read.store import INDEX
 
 TITAN_USD_PER_M_TOKENS = 0.02
 EDITABLE = ("expires_on", "superseded_by")
@@ -94,18 +91,15 @@ def ingest_file(
     with ThreadPoolExecutor(max_workers=8) as pool:
         vectors = list(pool.map(emb, passages))
     progress("indexing passages")
-    actions = [
-        {
-            "_index": INDEX,
-            "_id": p["chunk_id"],
-            "_source": {**p, "title": meta["title"], "embedding": v, "embed_model": EMBED_MODEL},
-        }
+    rows = [
+        {**p, "title": meta["title"], "embedding": v, "embed_model": EMBED_MODEL}
         for p, v in zip(passages, vectors, strict=True)
     ]
-    _, errors = helpers.bulk(st.os, actions, raise_on_error=False, refresh=True)
-    if errors:
+    try:
+        st.index.upsert(rows)
+    except Exception as e:
         st.works.put_item(Item={**row, "status": "failed: indexing"})
-        raise IngestError(f"{len(errors)} passages failed to index")
+        raise IngestError(f"passages failed to index: {e}") from None
     with st.sections.batch_writer() as batch:
         for s in sections:
             batch.put_item(Item={k: v for k, v in s.items() if v is not None})
@@ -119,7 +113,7 @@ def ingest_file(
 
 
 def _verify_counts(st: Stores, ver: str, expected: int, row: dict) -> None:
-    n = st.os.count(index=INDEX, body={"query": {"term": {"version_id": ver}}})["count"]
+    n = st.index.count(ver)
     if n != expected:
         st.works.put_item(Item={**row, "status": "failed: verification"})
         raise IngestError(f"index has {n} passages for {ver}, expected {expected}")
@@ -147,7 +141,7 @@ def activate(work_id: str, meta: dict, st: Stores, progress: Callable[[str], Non
 
 
 def _delete_version(st: Stores, ver: str) -> None:
-    st.os.delete_by_query(index=INDEX, body={"query": {"term": {"version_id": ver}}}, refresh=True)
+    st.index.delete_version(ver)
     stale, kwargs = (
         [],
         {"FilterExpression": "version_id = :v", "ExpressionAttributeValues": {":v": ver}},
@@ -199,7 +193,7 @@ def delete_work(work_id: str, st: Stores) -> None:
     row = st.works.get_item(Key={"work_id": work_id}).get("Item")
     if not row:
         raise IngestError(f"no such source: {work_id}")
-    st.os.delete_by_query(index=INDEX, body={"query": {"term": {"work_id": work_id}}}, refresh=True)
+    st.index.delete_work(work_id)
     for ver in {row.get("source_version_id"), row.get("active_version_id")} - {None}:
         _delete_version(st, ver)
     st.works.delete_item(Key={"work_id": work_id})

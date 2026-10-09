@@ -7,11 +7,12 @@ They can also upload sample teaching material and get a review that shows its ev
 material's own words, what the research says, and research-backed ways to improve.
 
 Built on AWS: Amazon Bedrock (Titan Text Embeddings V2, Amazon Rerank 1.0, Amazon Nova Pro),
-OpenSearch, DynamoDB, and, for deployment, Lambda behind API Gateway.
+DynamoDB, S3 (including the search index, searched in memory), and Lambda behind API Gateway,
+deployed with AWS SAM. No Docker, no database server.
 
-> **Status:** local development build, not yet deployed. The review checklist is a development
+> **Status:** deployed on AWS (stack `read-poc`, 2026-10-09) behind a shared passcode. The review checklist is a development
 > placeholder until the subject-matter expert rewrites it. Full design: [`docs/design.md`](docs/design.md);
-> decisions D1–D89: [`docs/decisions.md`](docs/decisions.md); session log:
+> decisions D1–D95: [`docs/decisions.md`](docs/decisions.md); session log:
 > [`docs/progress.md`](docs/progress.md).
 
 ![Review results: at a glance](docs/screenshots/review-5-glance.jpg)
@@ -40,13 +41,17 @@ These rules are enforced in code, not left to the language model.
 ```mermaid
 flowchart LR
   T[Teacher in a browser] --> P[Pages: Ask · Review · Sources · Checklist]
-  P --> API[FastAPI dev server<br/>scripts/dev_server.py]
+  P --> GW[API Gateway HTTP API<br/>passcode authorizer, 5 rps]
+  GW --> API[read-poc-api Lambda<br/>src/read/webapp.py]
+  API --> WK[read-poc-worker Lambda<br/>ingest + review jobs]
+  WK --> RUN
+  WK --> PIPE
   API --> SVC[service.py<br/>search + answer]
   API --> RUN[review_run.py<br/>material review]
   API --> PIPE[pipeline.py<br/>ingestion]
-  SVC --> OS[(OpenSearch<br/>passages: text + vectors)]
+  SVC --> OS[(S3 index shards<br/>passages: text + vectors)]
   SVC --> DDB[(DynamoDB<br/>works, sections)]
-  SVC --> TXT[(Canonical text<br/>write-once)]
+  SVC --> TXT[(S3 canonical text<br/>write-once)]
   PIPE --> OS
   PIPE --> DDB
   PIPE --> TXT
@@ -56,16 +61,19 @@ flowchart LR
   BR --- E[Titan Text Embeddings V2]
   BR --- RR[Amazon Rerank 1.0, us-west-2]
   BR --- NP[Amazon Nova Pro]
-  RUN --> TMP[(24-hour material store)]
+  RUN --> TMP[(S3 plans-temp<br/>24-hour lifecycle)]
 ```
 
-| Layer | Local build (now) | AWS deployment (planned) |
-|---|---|---|
-| Pages and API | FastAPI on 127.0.0.1:8080 | Static page + API Gateway (HTTP API, throttled) + Lambda |
-| Search index | OpenSearch in Docker, hybrid BM25 + k-NN | OpenSearch Serverless `passages` collection |
-| Metadata | DynamoDB Local (`works`, `sections`) | DynamoDB |
-| Canonical text | `data/works-text/` | S3 `works-text`, versioned, write-once |
-| Models | Bedrock: Titan V2, Rerank 1.0, Nova Pro | Same, via a least-privilege Lambda role |
+| Layer | AWS (stack `read-poc`, `template.yaml`) |
+|---|---|
+| Pages and API | One FastAPI app on Lambda (Mangum) behind API Gateway (HTTP API, 5 rps / burst 10); `/api/*` needs the shared passcode (Lambda authorizer, SSM SecureString) |
+| Long jobs | Worker Lambda (async, 15 min) runs ingestion and reviews; state in S3 so any Lambda can report progress |
+| Search index | One file per source version in S3 (passages + vectors), loaded into the Lambda and searched in memory: numpy cosine + BM25, fused like OpenSearch's hybrid-norm. No server, no idle cost; fits up to tens of thousands of passages |
+| Metadata | DynamoDB `read-poc-works`, `read-poc-sections` (on demand) |
+| Files | Private, encrypted S3: sources, canonical text (versioned, write-once), review material (deleted after a day), checklist |
+| Models | Bedrock: Titan V2, Rerank 1.0 (us-west-2), Nova Pro, via least-privilege roles inside a permissions boundary |
+
+The local dev server (`scripts/dev_server.py`) runs the same app against the deployed stack.
 
 The answer model must be an Amazon model (Nova Pro). Everything uses IAM; there are no API keys.
 
@@ -73,7 +81,7 @@ The answer model must be an Amazon model (Nova Pro). Everything uses IAM; there 
 
 ### Ask a question
 
-Hybrid search (BM25 + k-NN) finds candidate passages, reference lists are filtered out,
+Hybrid search (full text + vectors) finds candidate passages, reference lists are filtered out,
 Amazon Rerank orders them, and whole sections are hash-checked before Nova Pro answers using
 only those sections. Wording taken from a source is shown as a verified quotation, and each
 citation opens the exact source text.
@@ -224,21 +232,26 @@ nothing planted, "missing" was correct 11 times out of 12.
   objectives.
 - **Latency and cost:** about 4 minutes and 45¢ per review; parallel reviews can hit Bedrock
   throttling.
-- **AWS deployment** (SAM template, Lambdas, S3, OpenSearch Serverless) within a $10/month cap.
+- **Scale:** the in-memory index suits a PoC library; past tens of thousands of passages, move to
+  a database (the Aurora version, `pgindex.py`, is kept for a paid-plan account).
 
-## Run it locally
+## Deploy and run
 
-Requires Python 3.12, Docker, and an AWS profile with Bedrock access (see `infra/iam/`; replace
-`ACCOUNT_ID` with your own).
+Requires Python 3.12, the AWS SAM CLI, and an AWS profile allowed by `infra/iam/` (replace
+`ACCOUNT_ID` with your own; function roles must carry the `read-poc-boundary` boundary).
 
 ```bash
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
-docker compose up -d                          # OpenSearch + DynamoDB Local
-python scripts/setup_opensearch.py --local
-python scripts/ingest.py corpus/<file> corpus/<file>.meta.json --local
-python scripts/dev_server.py                  # http://localhost:8080
 pytest
+python scripts/build_lambda.py && sam build
+sam deploy --stack-name read-poc --capabilities CAPABILITY_IAM --resolve-s3   # review the change set
+aws ssm put-parameter --name /read-poc/passcode --type SecureString --value "<passcode>"
+python scripts/stack_env.py                   # .env.aws from the stack outputs
+python scripts/ingest.py corpus/<file> corpus/<file>.meta.json
+python scripts/dev_server.py                  # optional: same app at http://localhost:8080
 ```
+
+The site is the stack's `ApiUrl` output; the page asks for the passcode once.
 
 Source documents and their license sign-offs are not included. Add your own to `corpus/` with a
 `.meta.json` sidecar (fields in `src/read/ingest.py`). A source becomes searchable only after a
@@ -250,11 +263,17 @@ person records its license verification.
 |---|---|
 | `src/read/extract.py` | Format sniffing; PDF, DOCX (with heading levels), PPTX, and text extraction |
 | `src/read/chunk.py` | Sections and passages with exact offsets; `verify()` |
-| `src/read/retrieve.py` | Hybrid query, rerank, section expansion, hash check, reference-list filter |
+| `src/read/retrieve.py` | Score fusion, rerank, section expansion, hash check, reference-list filter |
 | `src/read/answer.py` | Answer prompt, forced tool call, validation, verified quotes |
-| `src/read/service.py` | `search()` and `answer()`, shared by the server and future Lambdas |
+| `src/read/service.py` | `search()` and `answer()`; `Stores.aws()` builds the AWS clients |
+| `src/read/s3index.py` | Passages index: S3 shards, in-memory vector + BM25 search |
+| `src/read/pgindex.py` | Optional Aurora passages index (paid-plan accounts) |
+| `src/read/store.py` | S3 stores (canonical text, temp material, files) |
+| `src/read/webapp.py`, `jobs.py` | The web app (pages + API) and the ingest/review jobs |
+| `src/handlers/` | Lambda entry points: API, worker, passcode authorizer |
+| `template.yaml` | SAM stack: buckets, tables, Lambdas, HTTP API |
 | `src/read/review.py`, `review_run.py` | Material review: rules, prompts, validators, evidence trails, pipeline |
-| `scripts/dev_server.py` | Local server: pages and JSON API |
+| `scripts/` | Dev server, ingest, stack env, Lambda bundle |
 | `web/` | The four pages and shared styles (Cloudscape design tokens) |
 | `rubric/checklist.json` | The review checklist (development placeholder) |
 | `tests/` | Unit tests; Bedrock calls are faked |

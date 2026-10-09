@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  R.E.A.D. proof of concept (D90, D95): private S3 buckets (the passage index is files in S3,
+  searched in memory), DynamoDB tables, and three Lambdas behind a throttled HTTP API with a
+  shared-passcode authorizer. Build with
+  "python scripts/build_lambda.py" then "sam build"; deploy as stack read-poc.
+
+Parameters:
+  AnswerModelId:
+    Type: String
+    Default: amazon.nova-pro-v1:0
+    AllowedPattern: "amazon\\.nova-.*"
+    Description: The answer model; must be an Amazon Nova model (CLAUDE.md).
+  PasscodeParam:
+    Type: String
+    Default: /read-poc/passcode
+    Description: SSM SecureString holding the shared passcode (created outside the stack).
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [x86_64]
+    CodeUri: .build/lambda
+    PermissionsBoundary: !Sub arn:aws:iam::${AWS::AccountId}:policy/read-poc-boundary
+    Environment:
+      Variables:
+        TEXT_BUCKET: !Ref TextBucket
+        RAW_BUCKET: !Ref RawBucket
+        TEMP_BUCKET: !Ref TempBucket
+        APP_BUCKET: !Ref AppBucket
+        WORKS_TABLE: !Ref WorksTable
+        SECTIONS_TABLE: !Ref SectionsTable
+        ANSWER_MODEL_ID: !Ref AnswerModelId
+        RERANK_REGION: us-west-2
+        MAX_UPLOAD_BYTES: "4000000"
+
+Resources:
+  # ---------------- storage ----------------
+  RawBucket: # uploaded sources + meta.json sidecars
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub read-poc-works-raw-${AWS::AccountId}
+      PublicAccessBlockConfiguration: &private
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption: &sse
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      OwnershipControls: &owner
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+
+  TextBucket: # canonical text, write-once
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub read-poc-works-text-${AWS::AccountId}
+      VersioningConfiguration: {Status: Enabled}
+      PublicAccessBlockConfiguration: *private
+      BucketEncryption: *sse
+      OwnershipControls: *owner
+
+  TempBucket: # review material, review state/results, job logs: deleted after a day (rule 7)
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub read-poc-plans-temp-${AWS::AccountId}
+      LifecycleConfiguration:
+        Rules:
+          - {Id: delete-after-24h, Status: Enabled, ExpirationInDays: 1}
+      PublicAccessBlockConfiguration: *private
+      BucketEncryption: *sse
+      OwnershipControls: *owner
+
+  AppBucket: # the edited review checklist and the passage index (index/<work>/<version>)
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub read-poc-app-${AWS::AccountId}
+      PublicAccessBlockConfiguration: *private
+      BucketEncryption: *sse
+      OwnershipControls: *owner
+
+  WorksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: read-poc-works
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: work_id, AttributeType: S}]
+      KeySchema: [{AttributeName: work_id, KeyType: HASH}]
+
+  SectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: read-poc-sections
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: section_id, AttributeType: S}]
+      KeySchema: [{AttributeName: section_id, KeyType: HASH}]
+
+  # ---------------- functions ----------------
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: read-poc-api
+      Handler: handlers.api.handler
+      MemorySize: 1024
+      Timeout: 29
+      Environment:
+        Variables:
+          WORKER_FUNCTION: read-poc-worker
+      Policies: &appPolicy
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                - !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0
+                - !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/${AnswerModelId}
+                - arn:aws:bedrock:us-west-2::foundation-model/amazon.rerank-v1:0
+            - Effect: Allow
+              Action: bedrock:Rerank
+              Resource: "*"
+            - Effect: Allow
+              Action: [s3:GetObject, s3:PutObject]
+              Resource:
+                - !Sub ${RawBucket.Arn}/*
+                - !Sub ${TextBucket.Arn}/*
+                - !Sub ${TempBucket.Arn}/*
+                - !Sub ${AppBucket.Arn}/*
+            - Effect: Allow # so a missing object is a 404, not a 403
+              Action: s3:ListBucket
+              Resource:
+                - !GetAtt RawBucket.Arn
+                - !GetAtt TextBucket.Arn
+                - !GetAtt TempBucket.Arn
+                - !GetAtt AppBucket.Arn
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+                - dynamodb:Scan
+                - dynamodb:BatchWriteItem
+              Resource: [!GetAtt WorksTable.Arn, !GetAtt SectionsTable.Arn]
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:read-poc-worker
+      Events:
+        TestPage:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: /, Method: GET, Auth: {Authorizer: NONE}}
+        SourcesPage:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: /sources, Method: GET, Auth: {Authorizer: NONE}}
+        ReviewPage:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: /review, Method: GET, Auth: {Authorizer: NONE}}
+        ChecklistPage:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: /checklist, Method: GET, Auth: {Authorizer: NONE}}
+        Style:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: /style.css, Method: GET, Auth: {Authorizer: NONE}}
+        AuthScript:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: /auth.js, Method: GET, Auth: {Authorizer: NONE}}
+        ApiRoutes: # every /api call needs the passcode
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: "/api/{proxy+}", Method: ANY}
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: read-poc-worker
+      Handler: handlers.worker.handler
+      MemorySize: 1024
+      Timeout: 900
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0 # a failed review is reported, never silently re-run (cost)
+      Policies: *appPolicy
+
+  AuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: read-poc-authorizer
+      Handler: handlers.authorizer.handler
+      MemorySize: 256
+      Timeout: 5
+      Environment:
+        Variables:
+          PASSCODE_PARAM: !Ref PasscodeParam
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${PasscodeParam}
+
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 5
+        ThrottlingBurstLimit: 10
+      Auth:
+        DefaultAuthorizer: Passcode
+        Authorizers:
+          Passcode:
+            FunctionArn: !GetAtt AuthorizerFunction.Arn
+            AuthorizerPayloadFormatVersion: "2.0"
+            EnableSimpleResponses: true
+            EnableFunctionDefaultPermissions: true
+            Identity:
+              Headers: [X-Read-Passcode]
+              ReauthorizeEvery: 300
+
+Outputs:
+  ApiUrl:
+    Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com/
+  TextBucket:
+    Value: !Ref TextBucket
+  RawBucket:
+    Value: !Ref RawBucket
+  TempBucket:
+    Value: !Ref TempBucket
+  AppBucket:
+    Value: !Ref AppBucket
+  WorksTable:
+    Value: !Ref WorksTable
+  SectionsTable:
+    Value: !Ref SectionsTable
+  AnswerModelId:
+    Value: !Ref AnswerModelId

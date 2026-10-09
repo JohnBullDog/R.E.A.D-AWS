@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from read.answer import SCHEMA, TOOL_NAME, call_model, cap_strength, cited_answer, ngrams, validate
@@ -143,6 +145,30 @@ def test_retry_succeeds_on_second_attempt():
     assert res["ok"] is True and res["evidence_strength"] == "strong"
 
 
+class ModelErrorException(Exception):
+    pass
+
+
+def test_bedrock_tool_error_is_a_failed_attempt_not_a_crash():
+    """Live 2026-10-09: Nova's "invalid sequence as part of ToolUse" made /answer return 500."""
+    outs = [ModelErrorException("Model produced invalid sequence as part of ToolUse"), good()]
+
+    def model(q, e, fb):
+        o = outs.pop(0)
+        if isinstance(o, Exception):
+            raise o
+        return o
+
+    assert cited_answer("q", EVIDENCE, WORKS, model)["ok"] is True
+
+    def always(q, e, fb):
+        raise ModelErrorException("Model produced invalid sequence as part of ToolUse")
+
+    res = cited_answer("q", EVIDENCE, WORKS, always)
+    assert res["ok"] is False and res["error"] == "answer_unavailable"
+    assert "ModelErrorException" in res["problems"][0]
+
+
 class FakeBedrock:
     def __init__(self, content):
         self.content, self.kwargs = content, None
@@ -209,3 +235,45 @@ def test_call_model_appends_feedback(monkeypatch):
     fake = FakeBedrock([{"toolUse": {"name": TOOL_NAME, "input": good()}}])
     call_model("q", EVIDENCE, fake, "FIX THIS")
     assert fake.kwargs["messages"][0]["content"][0]["text"].endswith("\n\nFIX THIS")
+
+
+class ToolRejectingBedrock:
+    """Bedrock rejecting Nova's tool output, then answering the plain-text JSON request."""
+
+    def __init__(self, reply):
+        self.reply, self.calls = reply, []
+
+    def converse(self, **kwargs):
+        self.calls.append(kwargs)
+        if "toolConfig" in kwargs:
+            exc = Exception("Model produced invalid sequence as part of ToolUse")
+            exc.response = {"Error": {"Code": "ModelErrorException"}}
+            raise exc
+        return {"output": {"message": {"content": [{"text": self.reply}]}}}
+
+
+def test_tool_error_falls_back_to_json_text_and_is_validated(monkeypatch):
+    monkeypatch.setenv("ANSWER_MODEL_ID", "m")
+    fake = ToolRejectingBedrock("<thinking>ok</thinking>\n```json\n" + json.dumps(good()) + "\n```")
+    res = cited_answer("q", EVIDENCE, WORKS, lambda q, e, fb: call_model(q, e, fake, fb))
+    assert res["ok"] is True and res["answer"] == good()  # no marker key left in the answer
+    assert res["attempts"][0]["fallback"] == "json-text"
+    assert len(fake.calls) == 2 and "toolConfig" not in fake.calls[1]
+    assert "JSON schema" in fake.calls[1]["messages"][0]["content"][0]["text"]
+
+    bad = ToolRejectingBedrock(json.dumps(good(sentences=[{"text": "x", "cites": ["S9"]}])))
+    res = cited_answer("q", EVIDENCE, WORKS, lambda q, e, fb: call_model(q, e, bad, fb))
+    assert res["ok"] is False  # fallback output still has to pass validation (unknown cite)
+
+
+def test_other_bedrock_errors_are_not_masked_by_the_fallback(monkeypatch):
+    monkeypatch.setenv("ANSWER_MODEL_ID", "m")
+
+    class Throttled:
+        def converse(self, **kw):
+            exc = Exception("Too many requests")
+            exc.response = {"Error": {"Code": "ThrottlingException"}}
+            raise exc
+
+    with pytest.raises(Exception, match="Too many requests"):
+        call_model("q", EVIDENCE, Throttled())

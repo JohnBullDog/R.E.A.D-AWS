@@ -51,9 +51,12 @@ that would weaken one.
 
 Build now:
 - Local ingestion script (not Step Functions) for plain text, text-layer PDF, then DOCX
-- OpenSearch Serverless `passages` index with hybrid search (BM25 + k-NN) via the `hybrid-norm` pipeline
+- Passage index as files in S3 (`index/<work_id>/<version_id>.json.gz`), searched in memory in
+  the Lambda: numpy cosine + BM25, fused in code like OpenSearch's `hybrid-norm` (D95; replaced
+  OpenSearch, no Docker). Aurora (`pgindex.py`, D90) is kept as an option for a paid-plan account
 - DynamoDB `works` and `sections` tables
-- `/search` and `/answer` Lambdas behind API Gateway (HTTP API) with throttling
+- The app on Lambda (pages + `/api/*`, worker for ingest/review jobs) behind API Gateway (HTTP API)
+  with throttling and a shared-passcode authorizer (D91)
 - Authority/recency ranking, evidence-strength capping, citation labels from metadata
 - Reranking with Amazon Rerank 1.0 (`amazon.rerank-v1:0`) in **us-west-2** (not offered in
   us-east-1); the only AWS action allowed outside us-east-1 (decisions D31)
@@ -73,10 +76,12 @@ Out of scope entirely: user authentication and accounts, production deployment.
 ```
 works-raw (S3) --> scripts/ingest.py --> works-text (S3, canonical text, write-once)
                                      --> DynamoDB: works, sections
-                                     --> OpenSearch Serverless: passages (text + vectors)
+                                     --> S3 index shards: passages (text + vectors)
 
-Teacher page --> API Gateway --> /search Lambda  (hybrid search, rank, expand, hash-check)
-                             --> /answer Lambda  (re-reads sections by ref, calls LLM, validates)
+Teacher page --> API Gateway (passcode authorizer) --> read-poc-api Lambda (src/read/webapp.py)
+    /api/search  (hybrid search, rank, expand, hash-check)
+    /api/answer  (re-reads sections by ref, calls LLM, validates)
+    ingest + review jobs --> read-poc-worker Lambda (async); state in plans-temp S3
 ```
 
 The page calls `/search` first and lists the sources immediately, then calls `/answer` and shows
@@ -88,7 +93,7 @@ back from the browser.
 
 - **Canonical text:** `works-text/<work_id>/<version_id>.txt`, UTF-8, `\n` line endings.
   All offsets point into this file. `version_id` is the S3 version ID of the source upload.
-- **Passages** (OpenSearch, ~250 words, the search unit): `chunk_id` (also the doc `_id`),
+- **Passages** (S3 index shard per version, ~250 words, the search unit): `chunk_id` (unique),
   `work_id`, `version_id`, `section_id`, `char_start`, `char_end`, `text`, `embedding`
   (1024-dim), `text_sha256`, `page`, `embed_model`.
 - **Sections** (DynamoDB, the display unit; passages never cross a section boundary):
@@ -111,14 +116,21 @@ src/read/                 shared library (imported by Lambdas and scripts)
   extract.py              format sniffing + extractors
   chunk.py                sections/passages with exact offsets
   embed.py                Bedrock Titan V2 embeddings
-  store.py                S3, DynamoDB, OpenSearch clients
+  store.py                S3 and DynamoDB stores
+  s3index.py              passages index: S3 shards, numpy cosine + BM25 (in use)
+  pgindex.py              Aurora passages index (used only if DB_CLUSTER_ARN is set)
   retrieve.py             hybrid search, ranking, section expansion
   answer.py               prompt, Converse call, validation
   cite.py                 citation labels from metadata
-src/handlers/search.py    /search Lambda
-src/handlers/answer.py    /answer Lambda
+  webapp.py               the FastAPI app (pages + API), shared by Lambda and dev server
+  jobs.py                 ingest/review jobs (worker Lambda or local threads)
+src/handlers/api.py       API Lambda (Mangum)
+src/handlers/worker.py    worker Lambda (ingest, review)
+src/handlers/authorizer.py  passcode authorizer (SSM SecureString)
 scripts/ingest.py         local ingestion: python scripts/ingest.py <file> <meta.json>
-scripts/setup_opensearch.py  collection policies, index mapping, hybrid-norm pipeline
+scripts/setup_aurora.py   Aurora passages table (only with the Aurora option)
+scripts/stack_env.py      writes .env.aws from the stack outputs
+scripts/build_lambda.py   stages the Lambda bundle for sam build
 scripts/eval.py           runs the golden set, reports recall@8 and MRR
 corpus/                   source files + meta.json sidecars (sources not committed if large)
 eval/golden.jsonl         golden questions with expected section IDs (owned by Addison)
@@ -134,7 +146,8 @@ Create this structure as you go; don't scaffold empty files ahead of need.
 
 ## Tech and conventions
 
-- Python 3.12, `boto3`, `opensearch-py`, `pdfplumber`, `python-docx`, `charset-normalizer`.
+- Python 3.12, `boto3`, `pdfplumber`, `python-docx`, `charset-normalizer`, `python-pptx`;
+  the Lambda bundle adds `fastapi`, `mangum` (requirements-lambda.txt).
   Pin versions in `requirements.txt`.
 - Embeddings: `amazon.titan-embed-text-v2:0`, `dimensions=1024`, `normalize=True`.
 - Answer model: Bedrock Converse API, `temperature=0`, forced tool `record_answer`.
@@ -154,11 +167,11 @@ Create this structure as you go; don't scaffold empty files ahead of need.
 pip install -r requirements.txt -r requirements-dev.txt
 pytest                                   # run before every commit
 ruff check . && ruff format --check .
-sam build && sam deploy                  # ask before running; shows a changeset first
-docker compose up -d                     # local OpenSearch (:9200) + DynamoDB Local (:8000)
-python scripts/setup_opensearch.py --local
-python scripts/ingest.py corpus/<file> corpus/<file>.meta.json --local
-python scripts/dev_server.py             # GUI at http://localhost:8080 (Test + Sources)
+python scripts/build_lambda.py && sam build
+sam deploy                               # ask before running; shows a changeset first
+python scripts/stack_env.py              # .env.aws from the stack outputs
+python scripts/ingest.py corpus/<file> corpus/<file>.meta.json
+python scripts/dev_server.py             # same app at http://localhost:8080, against AWS
 python scripts/eval.py eval/golden.jsonl
 ```
 
@@ -170,12 +183,12 @@ python scripts/eval.py eval/golden.jsonl
 - **Ask before** any command that creates billable resources, deletes anything, changes IAM,
   or runs `sam deploy`. Show what will change first.
 - Never use or request root/admin credentials. Keep IAM least-privilege: Lambdas get only
-  the actions they use (`bedrock:InvokeModel`, `aoss:APIAccessAll` on this collection,
-  scoped S3 and DynamoDB access).
-- The OpenSearch Serverless collection bills while idle. At the end of a session, remind
-  John and offer to delete it; `scripts/setup_opensearch.py` must be able to recreate it.
-- The OpenSearch data access policy must grant both the Lambda role and John's IAM principal.
-  Check this first when you see `403` errors from OpenSearch.
+  the actions they use (`bedrock:InvokeModel`, scoped S3 and DynamoDB access, invoking the
+  worker), inside the `read-poc-boundary` permissions boundary.
+- The account is on AWS's Free plan: full-configuration Aurora is not allowed (D95). The
+  deployed stack has no idle cost beyond pennies of storage; Bedrock calls are the main cost.
+- The hosted site's passcode is in SSM `/read-poc/passcode`; John's copy is `.passcode.txt`
+  (git-ignored). Never print it in chat or commit it.
 - API Gateway throttling stays on (start at 5 requests/second, burst 10).
 
 ## Testing priorities

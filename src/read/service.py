@@ -1,4 +1,4 @@
-"""The /search and /answer logic, shared by the local dev server and (later) the Lambdas.
+"""The /search and /answer logic, shared by the API Lambda and the local dev server.
 
 /search: embed the question, hybrid search over active versions, rerank, expand to whole
 sections, apply authority/recency, hash-check, and return verbatim excerpts.
@@ -25,14 +25,13 @@ from read.retrieve import (
     excerpt,
     expand,
     grades_overlap,
-    hybrid_query,
     is_active,
     is_reference_list,
     number_cites,
     rerank,
     verified,
 )
-from read.store import INDEX, KEYWORD_WEIGHT, PIPELINE, pipeline_body
+from read.store import KEYWORD_WEIGHT
 
 DISCLAIMER = (
     "Advisory only. R.E.A.D. answers are machine-generated from the research excerpts shown and "
@@ -77,9 +76,9 @@ class SearchOptions:
 
 @dataclass
 class Stores:
-    """Clients for one environment (local Docker or AWS)."""
+    """AWS clients for one process or thread (D90)."""
 
-    os: object  # OpenSearch client
+    index: object  # passage index: read.s3index.S3Index or read.pgindex.AuroraIndex
     works: object  # DynamoDB works table
     sections: object  # DynamoDB sections table
     text: object  # canonical text store with get(work_id, version_id)
@@ -89,32 +88,35 @@ class Stores:
     today: date = field(default_factory=date.today)
 
     @classmethod
-    def local(cls, root, profile: str = "read-poc") -> "Stores":
+    def aws(cls, profile: str | None = None, env: dict | None = None) -> "Stores":
+        """Clients from the stack's settings: env vars in Lambda, or the stack outputs written
+        to .env.aws for the local dev server (scripts/stack_env.py)."""
         import boto3
         from botocore.config import Config
 
-        from read.store import (
-            SECTIONS_TABLE,
-            WORKS_TABLE,
-            LocalTextStore,
-            dynamodb_resource,
-            ensure_tables,
-            opensearch_client,
-        )
+        from read.pgindex import AuroraIndex
+        from read.s3index import S3Index
+        from read.store import SECTIONS_TABLE, WORKS_TABLE, S3TextStore
 
-        ddb = dynamodb_resource("http://localhost:8000")
-        ensure_tables(ddb)
+        env = env if env is not None else os.environ
         session = boto3.Session(profile_name=profile, region_name="us-east-1")
         retry = Config(retries={"max_attempts": 8, "mode": "adaptive"})
-        region = os.environ.get("RERANK_REGION", "us-west-2")
+        region = env.get("RERANK_REGION", "us-west-2")
+        ddb = session.resource("dynamodb")
+        if env.get("DB_CLUSTER_ARN"):  # Aurora (D90), when the account allows it
+            index = AuroraIndex(
+                session.client("rds-data"), env["DB_CLUSTER_ARN"], env["DB_SECRET_ARN"]
+            )
+        else:  # passages as files in S3, searched in memory (D95)
+            index = S3Index(session.client("s3"), env["APP_BUCKET"])
         return cls(
-            os=opensearch_client("http://localhost:9200"),
-            works=ddb.Table(WORKS_TABLE),
-            sections=ddb.Table(SECTIONS_TABLE),
-            text=LocalTextStore(root / "data" / "works-text"),
+            index=index,
+            works=ddb.Table(env.get("WORKS_TABLE", WORKS_TABLE)),
+            sections=ddb.Table(env.get("SECTIONS_TABLE", SECTIONS_TABLE)),
+            text=S3TextStore(session.client("s3"), env["TEXT_BUCKET"]),
             bedrock=session.client("bedrock-runtime", config=retry),
             rerank=session.client("bedrock-agent-runtime", region_name=region, config=retry),
-            rerank_arn=os.environ.get(
+            rerank_arn=env.get(
                 "RERANK_MODEL_ARN",
                 f"arn:aws:bedrock:{region}::foundation-model/amazon.rerank-v1:0",
             ),
@@ -173,18 +175,13 @@ def search(q: str, st: Stores, debug: bool = False, options: SearchOptions | Non
         return {**out, "message": msg or "No sources are active yet."}
     vec = embed(q, st.bedrock)
     t1 = time.perf_counter()
-    body = hybrid_query(q, vec, active, size=opt.candidates)
-    params = {"search_pipeline": PIPELINE}
-    if abs(opt.keyword_weight - KEYWORD_WEIGHT) > 1e-9:  # one-off weights: inline pipeline
-        body["search_pipeline"] = pipeline_body(opt.keyword_weight)
-        params = {}
-    hits = st.os.search(index=INDEX, body=body, params=params)["hits"]["hits"]
+    hits = st.index.hybrid(q, vec, active, opt.candidates, opt.keyword_weight)
     t2 = time.perf_counter()
-    candidates = [h["_source"] for h in hits]
+    candidates = [p for p, _ in hits]
     if opt.use_reranker:
         ranked = rerank(q, candidates, st.rerank, st.rerank_arn, n=len(candidates))
     else:
-        ranked = [(h["_source"], h["_score"]) for h in hits]
+        ranked = list(hits)
     references = [p for p, _ in ranked if is_reference_list(p.get("text", ""))]
     ranked = [(p, sc) for p, sc in ranked if not is_reference_list(p.get("text", ""))]
     below = [(p, sc) for p, sc in ranked if sc < opt.min_score]
@@ -231,8 +228,7 @@ def search(q: str, st: Stores, debug: bool = False, options: SearchOptions | Non
             "below_min_score": len(below),
             "reference_lists_dropped": len(references),
             "hybrid_top": [
-                {"score": round(h["_score"], 4), "chunk_id": h["_source"]["chunk_id"]}
-                for h in hits[:10]
+                {"score": round(sc, 4), "chunk_id": p["chunk_id"]} for p, sc in hits[:10]
             ],
             "ranked_top": [
                 {"score": round(sc, 5), "chunk_id": p["chunk_id"], "section": p.get("section_path")}

@@ -1,157 +1,147 @@
-"""OpenSearch index definition and client.
+"""Storage on AWS: DynamoDB tables, S3 buckets for canonical text, sources, review material,
+and app files (D90). Passages live in Aurora PostgreSQL (read.pgindex).
 
-Development runs against a local OpenSearch in Docker (docker-compose.yml, free); the AWS
-OpenSearch Serverless collection is used only for short, approved tests and demos
-(docs/decisions.md). Both take the same index mapping and hybrid-norm pipeline.
+The local file-backed stores at the bottom are kept for unit tests and offline use; nothing
+in R.E.A.D. needs Docker any more.
 """
 
+import json
 import os
-from urllib.parse import urlparse
+import uuid
 
-from read.embed import DIMENSIONS
+KEYWORD_WEIGHT, SEMANTIC_WEIGHT = 0.3, 0.7  # hybrid search weights (retrieve.fuse)
 
-INDEX = "passages"
-PIPELINE = "hybrid-norm"
-KEYWORD_WEIGHT, SEMANTIC_WEIGHT = 0.3, 0.7
-
-INDEX_BODY = {
-    "settings": {"index": {"knn": True}},
-    "mappings": {
-        "properties": {
-            "chunk_id": {"type": "keyword"},
-            "work_id": {"type": "keyword"},
-            "version_id": {"type": "keyword"},
-            "section_id": {"type": "keyword"},
-            "char_start": {"type": "integer"},
-            "char_end": {"type": "integer"},
-            "text": {"type": "text"},
-            "text_sha256": {"type": "keyword"},
-            "title": {"type": "text"},
-            "section_path": {"type": "keyword"},
-            "page": {"type": "integer"},
-            "page_end": {"type": "integer"},
-            "embed_model": {"type": "keyword"},
-            "embedding": {
-                "type": "knn_vector",
-                "dimension": DIMENSIONS,
-                "method": {"name": "hnsw", "engine": "faiss", "space_type": "l2"},
-            },
-        }
-    },
-}
-
-
-def pipeline_body(keyword_weight: float = KEYWORD_WEIGHT) -> dict:
-    """Min-max normalize BM25 and k-NN scores, then combine with these weights."""
-    kw = round(min(max(keyword_weight, 0.0), 1.0), 3)
-    return {
-        "description": "Min-max normalize BM25 and k-NN scores, then weight them",
-        "phase_results_processors": [
-            {
-                "normalization-processor": {
-                    "normalization": {"technique": "min_max"},
-                    "combination": {
-                        "technique": "arithmetic_mean",
-                        "parameters": {"weights": [kw, round(1 - kw, 3)]},
-                    },
-                }
-            }
-        ],
-    }
-
-
-PIPELINE_BODY = pipeline_body()
-
-
-def is_local(endpoint: str) -> bool:
-    return urlparse(endpoint).hostname in ("localhost", "127.0.0.1")
-
-
-def opensearch_client(endpoint: str | None = None, session=None):
-    """Client for OPENSEARCH_ENDPOINT: plain HTTP for local Docker, SigV4 for Serverless."""
-    from opensearchpy import AWSV4SignerAuth, OpenSearch, RequestsHttpConnection
-
-    endpoint = endpoint or os.environ["OPENSEARCH_ENDPOINT"]
-    url = urlparse(endpoint)
-    if is_local(endpoint):
-        return OpenSearch(hosts=[endpoint], use_ssl=url.scheme == "https", timeout=30)
-    if session is None:
-        import boto3
-
-        session = boto3.Session()
-    auth = AWSV4SignerAuth(session.get_credentials(), session.region_name, "aoss")
-    return OpenSearch(
-        hosts=[{"host": url.hostname, "port": 443}],
-        http_auth=auth,
-        use_ssl=True,
-        verify_certs=True,
-        connection_class=RequestsHttpConnection,
-        timeout=30,
-    )
-
-
-def ensure_index(client) -> list[str]:
-    """Create the passages index and hybrid-norm pipeline if missing; return what was done."""
-    done = []
-    if not client.indices.exists(index=INDEX):
-        client.indices.create(index=INDEX, body=INDEX_BODY)
-        done.append(f"created index {INDEX}")
-    client.transport.perform_request("PUT", f"/_search/pipeline/{PIPELINE}", body=PIPELINE_BODY)
-    done.append(f"put pipeline {PIPELINE}")
-    return done
-
-
-# ---- DynamoDB: works and sections tables (DynamoDB Local in development) ----
+# ---- DynamoDB: works and sections tables ----
 
 WORKS_TABLE = os.environ.get("WORKS_TABLE", "read-poc-works")
 SECTIONS_TABLE = os.environ.get("SECTIONS_TABLE", "read-poc-sections")
-TABLE_KEYS = {WORKS_TABLE: "work_id", SECTIONS_TABLE: "section_id"}
-
-
-def dynamodb_resource(endpoint: str | None = None):
-    """DynamoDB resource; a localhost endpoint means DynamoDB Local with dummy credentials,
-    so a local run can never touch the real AWS account."""
-    import boto3
-
-    endpoint = endpoint or os.environ.get("DYNAMODB_ENDPOINT")
-    if endpoint and is_local(endpoint):
-        return boto3.resource(
-            "dynamodb",
-            endpoint_url=endpoint,
-            region_name="us-east-1",
-            aws_access_key_id="local",
-            aws_secret_access_key="local",
-        )
-    return boto3.resource("dynamodb")
-
-
-def ensure_tables(ddb) -> list[str]:
-    """Create the works and sections tables (on-demand billing) if missing."""
-    existing = {t.name for t in ddb.tables.all()}
-    done = []
-    for name, key in TABLE_KEYS.items():
-        if name in existing:
-            continue
-        table = ddb.create_table(
-            TableName=name,
-            KeySchema=[{"AttributeName": key, "KeyType": "HASH"}],
-            AttributeDefinitions=[{"AttributeName": key, "AttributeType": "S"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        table.wait_until_exists()
-        done.append(f"created table {name}")
-    return done
-
-
-# ---- Canonical text: write-once files (the works-text S3 bucket in AWS) ----
 
 
 class WriteOnceError(Exception):
-    """A canonical text file already exists with different content."""
+    """A canonical text object already exists with different content."""
+
+
+def _missing(exc: Exception) -> bool:
+    code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+    return code in ("NoSuchKey", "404", "NotFound")
+
+
+# ---- S3 stores ----
+
+
+class S3TextStore:
+    """works-text/<work_id>/<version_id>.txt in S3, write-once (the bucket is versioned)."""
+
+    def __init__(self, s3, bucket: str):
+        self.s3, self.bucket = s3, bucket
+
+    def key(self, work_id: str, version_id: str) -> str:
+        return f"{work_id}/{version_id}.txt"
+
+    def put(self, work_id: str, version_id: str, text: str) -> str:
+        key, data = self.key(work_id, version_id), text.encode("utf-8")
+        try:
+            old = self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+        except Exception as exc:
+            if not _missing(exc):
+                raise
+            old = None
+        if old is not None:
+            if old != data:
+                raise WriteOnceError(f"s3://{self.bucket}/{key} exists with different content")
+            return key
+        self.s3.put_object(
+            Bucket=self.bucket, Key=key, Body=data, ContentType="text/plain; charset=utf-8"
+        )
+        return key
+
+    def get(self, work_id: str, version_id: str) -> str:
+        obj = self.s3.get_object(Bucket=self.bucket, Key=self.key(work_id, version_id))
+        return obj["Body"].read().decode("utf-8")
+
+
+class S3TempStore:
+    """Submitted material, review state and results under <rid>/ in the plans-temp bucket,
+    whose lifecycle rule deletes everything after a day (rule 7). Same interface as TempStore."""
+
+    def __init__(self, s3, bucket: str, hours: float = 24):
+        self.s3, self.bucket, self.hours = s3, bucket, hours
+
+    def new(self) -> str:
+        rid = uuid.uuid4().hex[:16]
+        self.put_json(rid, ".created", {})
+        return rid
+
+    def _key(self, rid: str, name: str) -> str:
+        if not rid.isalnum() or "/" in name:
+            raise KeyError(rid)
+        return f"{rid}/{name}"
+
+    def exists(self, rid: str, name: str) -> bool:
+        try:
+            self.s3.head_object(Bucket=self.bucket, Key=self._key(rid, name))
+            return True
+        except Exception as exc:
+            if _missing(exc) or "Not Found" in str(exc) or "404" in str(exc):
+                return False
+            raise
+
+    def put_json(self, rid: str, name: str, value) -> None:
+        self.s3.put_object(
+            Bucket=self.bucket,
+            Key=self._key(rid, name),
+            Body=json.dumps(value, ensure_ascii=False).encode("utf-8"),
+            ContentType="application/json",
+        )
+
+    def get_json(self, rid: str, name: str):
+        try:
+            obj = self.s3.get_object(Bucket=self.bucket, Key=self._key(rid, name))
+        except Exception as exc:
+            if _missing(exc):
+                raise FileNotFoundError(f"{rid}/{name}") from None
+            raise
+        return json.loads(obj["Body"].read().decode("utf-8"))
+
+    def purge(self, now: float | None = None) -> int:
+        return 0  # the bucket's lifecycle rule deletes objects after a day
+
+
+class S3FileStore:
+    """Plain files in one bucket: uploaded sources and their meta.json sidecars (works-raw),
+    or app files such as the edited checklist."""
+
+    def __init__(self, s3, bucket: str):
+        self.s3, self.bucket = s3, bucket
+
+    def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+        self.s3.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
+
+    def get(self, key: str) -> bytes | None:
+        try:
+            return self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+        except Exception as exc:
+            if _missing(exc):
+                return None
+            raise
+
+    def put_json(self, key: str, value) -> None:
+        self.put(
+            key,
+            (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8"),
+            "application/json",
+        )
+
+    def get_json(self, key: str):
+        data = self.get(key)
+        return json.loads(data.decode("utf-8")) if data is not None else None
+
+
+# ---- Local file stores: unit tests and offline use only ----
 
 
 class LocalTextStore:
-    """works-text/<work_id>/<version_id>.txt on local disk, write-once like the S3 bucket."""
+    """works-text/<work_id>/<version_id>.txt on local disk, write-once like the S3 store."""
 
     def __init__(self, root: str | os.PathLike):
         from pathlib import Path
@@ -176,11 +166,8 @@ class LocalTextStore:
         return (self.root / self.key(work_id, version_id)).read_bytes().decode("utf-8")
 
 
-# ---- Temporary material store: plans-temp (S3 with a 24-hour lifecycle delete in AWS) ----
-
-
 class TempStore:
-    """Submitted material and its review, kept at most `hours` and never indexed (rule 7)."""
+    """Local version of S3TempStore: material kept at most `hours`, never indexed (rule 7)."""
 
     def __init__(self, root: str | os.PathLike, hours: float = 24):
         from pathlib import Path
@@ -188,8 +175,6 @@ class TempStore:
         self.root, self.hours = Path(root), hours
 
     def new(self) -> str:
-        import uuid
-
         rid = uuid.uuid4().hex[:16]
         (self.root / rid).mkdir(parents=True)
         return rid
@@ -199,14 +184,16 @@ class TempStore:
             raise KeyError(rid)
         return self.root / rid / name
 
-    def put_json(self, rid: str, name: str, value) -> None:
-        import json
+    def exists(self, rid: str, name: str) -> bool:
+        try:
+            return self.path(rid, name).exists()
+        except KeyError:
+            return False
 
+    def put_json(self, rid: str, name: str, value) -> None:
         self.path(rid, name).write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
     def get_json(self, rid: str, name: str):
-        import json
-
         return json.loads(self.path(rid, name).read_text(encoding="utf-8"))
 
     def purge(self, now: float | None = None) -> int:

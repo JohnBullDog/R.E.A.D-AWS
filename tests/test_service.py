@@ -43,7 +43,7 @@ class Text:
 
 def stores(text=TEXT, work=WORK):
     return Stores(
-        os=None,
+        index=None,
         works=Table("work_id", [work]),
         sections=Table("section_id", SECTIONS),
         text=Text(text),

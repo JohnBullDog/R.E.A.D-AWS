@@ -4,21 +4,45 @@
     {
       "Sid": "OnlyUsEast1AndUsWest2",
       "Effect": "Deny",
-      "NotAction": ["iam:*", "sts:*"],
+      "NotAction": [
+        "iam:*",
+        "sts:*"
+      ],
       "Resource": "*",
-      "Condition": {"StringNotEquals": {"aws:RequestedRegion": ["us-east-1", "us-west-2"]}}
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": [
+            "us-east-1",
+            "us-west-2"
+          ]
+        }
+      }
     },
     {
       "Sid": "UsWest2OnlyForRerank",
       "Effect": "Deny",
-      "NotAction": ["bedrock:Rerank", "bedrock:InvokeModel", "bedrock:ListFoundationModels", "bedrock:GetFoundationModel", "iam:*", "sts:*"],
+      "NotAction": [
+        "bedrock:Rerank",
+        "bedrock:InvokeModel",
+        "bedrock:ListFoundationModels",
+        "bedrock:GetFoundationModel",
+        "iam:*",
+        "sts:*"
+      ],
       "Resource": "*",
-      "Condition": {"StringEquals": {"aws:RequestedRegion": "us-west-2"}}
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-west-2"
+        }
+      }
     },
     {
       "Sid": "Bedrock",
       "Effect": "Allow",
-      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
       "Resource": [
         "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0",
         "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0"
@@ -29,7 +53,11 @@
       "Effect": "Allow",
       "Action": "bedrock:Rerank",
       "Resource": "*",
-      "Condition": {"StringEquals": {"aws:RequestedRegion": "us-west-2"}}
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-west-2"
+        }
+      }
     },
     {
       "Sid": "AmazonRerankModelOnly",
@@ -40,31 +68,127 @@
     {
       "Sid": "BedrockRead",
       "Effect": "Allow",
-      "Action": ["bedrock:ListFoundationModels", "bedrock:GetFoundationModel", "bedrock:ListInferenceProfiles"],
-      "Resource": "*"
-    },
-    {
-      "Sid": "OpenSearchServerless",
-      "Effect": "Allow",
       "Action": [
-        "aoss:CreateCollection", "aoss:DeleteCollection", "aoss:UpdateCollection", "aoss:BatchGetCollection", "aoss:ListCollections",
-        "aoss:CreateSecurityPolicy", "aoss:GetSecurityPolicy", "aoss:UpdateSecurityPolicy", "aoss:DeleteSecurityPolicy", "aoss:ListSecurityPolicies",
-        "aoss:CreateAccessPolicy", "aoss:GetAccessPolicy", "aoss:UpdateAccessPolicy", "aoss:DeleteAccessPolicy", "aoss:ListAccessPolicies",
-        "aoss:APIAccessAll"
+        "bedrock:ListFoundationModels",
+        "bedrock:GetFoundationModel",
+        "bedrock:ListInferenceProfiles"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "AossServiceLinkedRole",
+      "Sid": "AuroraCluster",
+      "Effect": "Allow",
+      "Action": "rds:*",
+      "Resource": [
+        "arn:aws:rds:us-east-1:ACCOUNT_ID:cluster:read-poc-*",
+        "arn:aws:rds:us-east-1:ACCOUNT_ID:db:read-poc-*"
+      ]
+    },
+    {
+      "Sid": "AuroraDefaults",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBCluster",
+        "rds:CreateDBInstance",
+        "rds:AddTagsToResource"
+      ],
+      "Resource": [
+        "arn:aws:rds:us-east-1:ACCOUNT_ID:cluster-pg:default*",
+        "arn:aws:rds:us-east-1:ACCOUNT_ID:pg:default*",
+        "arn:aws:rds:us-east-1:ACCOUNT_ID:og:default*",
+        "arn:aws:rds:us-east-1:ACCOUNT_ID:subgrp:default",
+        "arn:aws:rds:us-east-1:ACCOUNT_ID:secgrp:*"
+      ]
+    },
+    {
+      "Sid": "AuroraRead",
+      "Effect": "Allow",
+      "Action": [
+        "rds:Describe*",
+        "rds:ListTagsForResource",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeAvailabilityZones",
+        "ec2:DescribeAccountAttributes",
+        "ec2:DescribeVpcAttribute",
+        "ec2:DescribeInternetGateways"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AuroraDataApi",
+      "Effect": "Allow",
+      "Action": [
+        "rds-data:ExecuteStatement",
+        "rds-data:BatchExecuteStatement",
+        "rds-data:BeginTransaction",
+        "rds-data:CommitTransaction",
+        "rds-data:RollbackTransaction"
+      ],
+      "Resource": "arn:aws:rds:us-east-1:ACCOUNT_ID:cluster:read-poc-*"
+    },
+    {
+      "Sid": "AuroraManagedSecret",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:TagResource",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:RotateSecret",
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:UpdateSecret"
+      ],
+      "Resource": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:rds!*"
+    },
+    {
+      "Sid": "AwsManagedKeysViaRdsAndSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:CreateGrant"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": [
+            "rds.us-east-1.amazonaws.com",
+            "secretsmanager.us-east-1.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "RdsServiceLinkedRole",
       "Effect": "Allow",
       "Action": "iam:CreateServiceLinkedRole",
       "Resource": "*",
-      "Condition": {"StringEquals": {"iam:AWSServiceName": "observability.aoss.amazonaws.com"}}
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "rds.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "Passcode",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:PutParameter",
+        "ssm:GetParameter",
+        "ssm:DeleteParameter",
+        "ssm:AddTagsToResource"
+      ],
+      "Resource": "arn:aws:ssm:us-east-1:ACCOUNT_ID:parameter/read-poc/*"
     },
     {
       "Sid": "ProjectData",
       "Effect": "Allow",
-      "Action": ["s3:*", "dynamodb:*"],
+      "Action": [
+        "s3:*",
+        "dynamodb:*"
+      ],
       "Resource": [
         "arn:aws:s3:::read-poc-*",
         "arn:aws:s3:::aws-sam-cli-managed-default-*",
@@ -84,7 +208,10 @@
     {
       "Sid": "CfnRead",
       "Effect": "Allow",
-      "Action": ["cloudformation:ValidateTemplate", "cloudformation:ListStacks"],
+      "Action": [
+        "cloudformation:ValidateTemplate",
+        "cloudformation:ListStacks"
+      ],
       "Resource": "*"
     },
     {
@@ -108,16 +235,32 @@
     {
       "Sid": "RolesOnlyWithBoundary",
       "Effect": "Allow",
-      "Action": ["iam:CreateRole", "iam:PutRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:DeleteRolePolicy"],
+      "Action": [
+        "iam:CreateRole",
+        "iam:PutRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:DeleteRolePolicy"
+      ],
       "Resource": "arn:aws:iam::ACCOUNT_ID:role/read-poc-*",
-      "Condition": {"StringEquals": {"iam:PermissionsBoundary": "arn:aws:iam::ACCOUNT_ID:policy/read-poc-boundary"}}
+      "Condition": {
+        "StringEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::ACCOUNT_ID:policy/read-poc-boundary"
+        }
+      }
     },
     {
       "Sid": "RoleHousekeeping",
       "Effect": "Allow",
       "Action": [
-        "iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
-        "iam:TagRole", "iam:UntagRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy"
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:DeleteRole",
+        "iam:UpdateAssumeRolePolicy"
       ],
       "Resource": "arn:aws:iam::ACCOUNT_ID:role/read-poc-*"
     },
@@ -126,12 +269,21 @@
       "Effect": "Allow",
       "Action": "iam:PassRole",
       "Resource": "arn:aws:iam::ACCOUNT_ID:role/read-poc-*",
-      "Condition": {"StringEquals": {"iam:PassedToService": "lambda.amazonaws.com"}}
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "lambda.amazonaws.com"
+        }
+      }
     },
     {
       "Sid": "NoBoundaryEscape",
       "Effect": "Deny",
-      "Action": ["iam:DeleteRolePermissionsBoundary", "iam:CreatePolicyVersion", "iam:DeletePolicy", "iam:SetDefaultPolicyVersion"],
+      "Action": [
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:SetDefaultPolicyVersion"
+      ],
       "Resource": "*"
     },
     {

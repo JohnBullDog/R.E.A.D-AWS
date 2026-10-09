@@ -1,7 +1,6 @@
 from read.chunk import build_chunks
 from read.retrieve import expand, grades_overlap, parse_band
 from read.service import SearchOptions
-from read.store import pipeline_body
 
 
 def test_parse_band():
@@ -28,11 +27,6 @@ def test_options_are_clamped():
     ).clamped()
     assert (o.grade_min, o.grade_max) == (1, 5)
     assert (o.max_results, o.min_score, o.candidates, o.keyword_weight) == (15, 0.0, 10, 1.0)
-
-
-def test_pipeline_weights_sum_to_one():
-    w = pipeline_body(0.75)["phase_results_processors"][0]["normalization-processor"]
-    assert w["combination"]["parameters"]["weights"] == [0.75, 0.25]
 
 
 def test_expand_stops_at_max_sections_but_keeps_highlights():

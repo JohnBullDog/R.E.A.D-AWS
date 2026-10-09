@@ -9,3 +9,6 @@ samconfig.toml
 corpus/
 # local canonical text from scripts/ingest.py --local
 data/
+.env.aws
+.build/
+.passcode.txt

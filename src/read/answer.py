@@ -13,6 +13,8 @@ from read.quote import MAX_QUOTE_WORDS, NGRAM, copied_spans
 TOOL_NAME = "record_answer"
 STRENGTHS = ("strong", "limited", "mixed", "contested")
 MAX_TOKENS = 800
+FALLBACK_TOKENS = 3000  # room for Nova's <thinking> before the JSON; unused tokens cost nothing
+USED_FALLBACK = "_fallback"  # removed by cited_answer and recorded in its attempts
 CITE = re.compile(r"^S[0-9]+$")
 WORD = re.compile(r"[a-z0-9]+(?:['’][a-z0-9]+)*")
 
@@ -64,12 +66,36 @@ def call_model(query: str, evidence: list[dict], client, feedback: str | None = 
     feedback (on a retry) tells the model why its previous answer was rejected; without it a
     temperature-0 retry would just repeat the same answer.
     """
+    from read.review import FALLBACK, converse_json_text, is_tool_sequence_error
+
     text = prompt_blocks(query, evidence) + (f"\n\n{feedback}" if feedback else "")
-    resp = client.converse(
+    common = dict(
         modelId=os.environ["ANSWER_MODEL_ID"],
         system=[{"text": SYSTEM}],
-        messages=[{"role": "user", "content": [{"text": text}]}],
         inferenceConfig={"temperature": 0, "maxTokens": MAX_TOKENS},
+    )
+    try:
+        resp = _tool_call(client, common, text)
+    except Exception as exc:
+        if not is_tool_sequence_error(exc):
+            raise
+        # Bedrock rejected Nova's tool output: ask once for the same JSON as plain text (D97,
+        # as reviews do, D77). The reply goes through exactly the same validation.
+        plain = {**common, "inferenceConfig": {"temperature": 0, "maxTokens": FALLBACK_TOKENS}}
+        out = converse_json_text(client, plain, text, SCHEMA)
+        out.pop(FALLBACK, None)
+        out[USED_FALLBACK] = True
+        return out
+    for b in resp["output"]["message"]["content"]:
+        if "toolUse" in b and b["toolUse"].get("name") == TOOL_NAME:
+            return b["toolUse"]["input"]
+    raise ValueError("model returned no record_answer tool call")
+
+
+def _tool_call(client, common: dict, text: str) -> dict:
+    return client.converse(
+        **common,
+        messages=[{"role": "user", "content": [{"text": text}]}],
         toolConfig={
             "tools": [
                 {
@@ -83,11 +109,6 @@ def call_model(query: str, evidence: list[dict], client, feedback: str | None = 
             "toolChoice": {"tool": {"name": TOOL_NAME}},
         },
     )
-    content = resp["output"]["message"]["content"]
-    for b in content:
-        if "toolUse" in b and b["toolUse"].get("name") == TOOL_NAME:
-            return b["toolUse"]["input"]
-    raise ValueError("model returned no record_answer tool call")
 
 
 def ngrams(s: str, n: int = NGRAM) -> set[tuple[str, ...]]:
@@ -213,12 +234,15 @@ def cited_answer(
         feedback = retry_feedback(out, problems) if n else None
         try:
             out = model(query, evidence, feedback)
-        except ValueError as exc:
-            out, problems = None, [str(exc)]
+        except Exception as exc:  # incl. Bedrock ModelErrorException: a failed attempt (D96)
+            out, problems = None, [f"{type(exc).__name__}: {exc}"[:300]]
             tried.append({"problems": problems, "output": None})
             continue
+        fell = isinstance(out, dict) and bool(out.pop(USED_FALLBACK, False))
         problems = validate(out, evidence)
-        tried.append({"problems": problems, "output": out})
+        tried.append(
+            {"problems": problems, "output": out} | ({"fallback": "json-text"} if fell else {})
+        )
         if not problems:
             flag, capped_by = cap_strength(out, evidence, works)
             return {

@@ -1,13 +1,15 @@
 import logging
 from datetime import date
 
+import pytest
+
 from read.chunk import build_chunks, sha
 from read.retrieve import (
     active_versions,
     adjust,
     excerpt,
     expand,
-    hybrid_query,
+    fuse,
     is_active,
     number_cites,
     recency,
@@ -117,12 +119,15 @@ def test_excerpt_shape_and_relative_highlights():
     assert x["text"][s:t] == PASSAGES[0]["text"]
 
 
-def test_hybrid_query_filters_both_branches_to_active_versions():
-    body = hybrid_query("blending", [0.1] * 4, ["v1"])
-    bm25, knn = body["query"]["hybrid"]["queries"]
-    assert bm25["bool"]["filter"] == {"terms": {"version_id": ["v1"]}}
-    assert knn["knn"]["embedding"]["filter"] == {"terms": {"version_id": ["v1"]}}
-    assert body["_source"] == {"excludes": ["embedding"]}
+def test_fuse_min_max_normalizes_and_weights_like_hybrid_norm():
+    a, b, c = ({"chunk_id": k} for k in "abc")
+    keyword = [(a, 8.0), (b, 4.0), (c, 0.0)]  # normalized 1.0, 0.5, 0.0
+    semantic = [(b, 0.9), (c, 0.5)]  # normalized 1.0, 0.0; a missing scores 0
+    out = {p["chunk_id"]: s for p, s in fuse(keyword, semantic, 0.3)}
+    assert out == pytest.approx({"a": 0.3, "b": 0.85, "c": 0.0})
+    assert [p["chunk_id"] for p, _ in fuse(keyword, semantic, 0.3)] == ["b", "a", "c"]
+    assert [p["chunk_id"] for p, _ in fuse(keyword, semantic, 1.0, size=1)] == ["a"]
+    assert fuse([], [(a, 0.4)], 0.3) == [(a, 0.7)]  # a single hit normalizes to 1.0
 
 
 def test_expired_work_is_inactive_and_excluded():

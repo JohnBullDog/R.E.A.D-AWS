@@ -31,26 +31,31 @@ AUTHORITY = {  # starting weights; tune with the SME
 }
 
 
-def hybrid_query(
-    q: str, vector: list[float], active_versions: list[str], size: int = CANDIDATES
-) -> dict:
-    """OpenSearch body for BM25 + k-NN, both filtered to active versions.
+def fuse(
+    keyword: list[tuple[dict, float]],
+    semantic: list[tuple[dict, float]],
+    keyword_weight: float,
+    size: int = CANDIDATES,
+) -> list[tuple[dict, float]]:
+    """Combine keyword and vector results the way OpenSearch's hybrid-norm pipeline did:
+    min-max normalize each list, then a weighted mean (a passage missing from one list scores
+    0 there). Returns the top `size` (passage, score) pairs, best first."""
+    kw = min(max(float(keyword_weight), 0.0), 1.0)
 
-    Run with params={"search_pipeline": "hybrid-norm"} so scores are normalized and combined.
-    """
-    versions = {"terms": {"version_id": active_versions}}
-    return {
-        "size": size,
-        "_source": {"excludes": ["embedding"]},
-        "query": {
-            "hybrid": {
-                "queries": [
-                    {"bool": {"must": {"match": {"text": q}}, "filter": versions}},
-                    {"knn": {"embedding": {"vector": vector, "k": size, "filter": versions}}},
-                ]
-            }
-        },
-    }
+    def norm(rows: list[tuple[dict, float]]) -> dict[str, tuple[dict, float]]:
+        if not rows:
+            return {}
+        lo, hi = min(s for _, s in rows), max(s for _, s in rows)
+        return {p["chunk_id"]: (p, 1.0 if hi == lo else (s - lo) / (hi - lo)) for p, s in rows}
+
+    k, v = norm(keyword), norm(semantic)
+    out = []
+    for cid in dict.fromkeys(list(k) + list(v)):
+        passage = (k.get(cid) or v.get(cid))[0]
+        score = kw * k.get(cid, (None, 0.0))[1] + (1 - kw) * v.get(cid, (None, 0.0))[1]
+        out.append((passage, score))
+    out.sort(key=lambda x: -x[1])
+    return out[:size]
 
 
 def rerank(

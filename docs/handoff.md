@@ -5,6 +5,13 @@
 > JSON-text fallback for Nova tool errors (Session 3b, D73-D80). Read `docs/progress.md` Session
 > 3b for results and open items. Later sessions (3c-3f, 2026-10-09) added per-question section calls, graded evidence, evidence trails, research-only suggestions, and the Cloudscape UI (D81-D89); see progress.md. All uncommitted; 164 tests pass.
 
+> **Update 2026-10-09 (AWS, D90-D95): deployed.** Docker is gone. Stack `read-poc` is live
+> (site = `API_URL` in `.env.aws`, passcode in `.passcode.txt`, both git-ignored). The account is on
+> AWS's Free plan, which blocks normal Aurora, so the passage index is S3 shards searched in memory
+> (D95; `pgindex.py` kept for later). 4 placeholder sources re-ingested (1,729 passages). Live: pages,
+> passcode gate (401/403), search 1.6 s, answer 4 s. Local dev: `python scripts/dev_server.py`
+> (same app, against AWS). The old Docker start-up below no longer applies; see README.
+
 Read this first next session, then `docs/progress.md` (newest entry) and `docs/open-questions.md`.
 
 ## Where things stand
