@@ -44,6 +44,7 @@ STORES = service.Stores.local(ROOT)
 ensure_index(STORES.os)
 JOBS: dict[str, dict] = {}
 CHECKLIST = ROOT / "rubric" / "checklist.json"
+NO_CACHE = {"Cache-Control": "no-cache"}  # dev: pages and styles always revalidate
 TEMP = TempStore(ROOT / "data" / "plans-temp", hours=24)  # rule 7: deleted after 24 hours
 TEMP.purge()
 REVIEWS: dict[str, dict] = {}
@@ -76,27 +77,27 @@ def get_row(work_id: str) -> dict:
 
 @app.get("/")
 def page_test():
-    return FileResponse(WEB / "index.html")
+    return FileResponse(WEB / "index.html", headers=NO_CACHE)
 
 
 @app.get("/sources")
 def page_sources():
-    return FileResponse(WEB / "sources.html")
+    return FileResponse(WEB / "sources.html", headers=NO_CACHE)
 
 
 @app.get("/review")
 def page_review():
-    return FileResponse(WEB / "review.html")
+    return FileResponse(WEB / "review.html", headers=NO_CACHE)
 
 
 @app.get("/checklist")
 def page_checklist():
-    return FileResponse(WEB / "checklist.html")
+    return FileResponse(WEB / "checklist.html", headers=NO_CACHE)
 
 
 @app.get("/style.css")
 def style():
-    return FileResponse(WEB / "style.css")
+    return FileResponse(WEB / "style.css", headers=NO_CACHE)
 
 
 # ---------------- teacher API (same logic the Lambdas will run) ----------------
@@ -361,6 +362,7 @@ async def api_review_upload(
         )
     TEMP.purge()
     headings: set[str] = set()
+    levels: dict[str, int] = {}
     if file is not None and file.filename:
         data = await file.read()
         if len(data) > MAX_UPLOAD:
@@ -369,7 +371,7 @@ async def api_review_upload(
             ex = extract(data)
         except Unsupported as e:
             raise HTTPException(400, f"Can't read that file: {e}") from None
-        kind, material, headings = ex.kind, ex.text, set(ex.headings)
+        kind, material, headings, levels = ex.kind, ex.text, set(ex.headings), ex.heading_levels
     elif text.strip():
         kind, material = "pasted text", text.replace("\r\n", "\n").replace("\r", "\n").strip()
     else:
@@ -382,7 +384,7 @@ async def api_review_upload(
     parts = review.material_parts(material)
     if not parts:
         raise HTTPException(400, "No readable text found in the material.")
-    sections = review.make_sections(parts, headings)
+    sections = review.make_sections(parts, headings, levels)
     rid = TEMP.new()
     TEMP.put_json(
         rid, "material.json", {"kind": kind, "text": material, "parts": parts, "sections": sections}
@@ -473,7 +475,12 @@ def api_review_status(rid: str):
         material = TEMP.get_json(rid, "material.json")
     except (KeyError, FileNotFoundError):
         raise HTTPException(404, "review not found (material is deleted after 24 hours)") from None
-    state = REVIEWS.get(rid, {"state": "not started"})
+    state = REVIEWS.get(rid)
+    if state is None:  # after a server restart: the saved result, if the review finished
+        try:
+            state = {"state": "done", "result": TEMP.get_json(rid, "review.json")}
+        except (KeyError, FileNotFoundError):
+            state = {"state": "not started"}
     checklist = review.load_checklist(CHECKLIST)
     return {
         **state,

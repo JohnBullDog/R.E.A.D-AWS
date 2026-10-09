@@ -36,6 +36,7 @@ class Extracted:
     text: str  # canonical text: UTF-8 when written, "\n" line endings only
     page_starts: list[int] = field(default_factory=list)  # char offset where each page begins
     headings: set[str] = field(default_factory=set)  # paragraphs the source marks as headings
+    heading_levels: dict[str, int] = field(default_factory=dict)  # DOCX "Heading N" -> N
     kind: str = ""
 
 
@@ -344,6 +345,7 @@ def extract_docx(data: bytes) -> Extracted:
     d = docx.Document(io.BytesIO(data))
     paras: list[str] = []
     headings: set[str] = set()
+    levels: dict[str, int] = {}
     for block in d.iter_inner_content():  # paragraphs and tables in document order
         if isinstance(block, Paragraph):
             t = normalize_newlines(block.text).strip()
@@ -352,13 +354,16 @@ def extract_docx(data: bytes) -> Extracted:
             paras.append(t)
             if block.style is not None and block.style.name.startswith("Heading"):
                 headings.add(t)
+                level = block.style.name.removeprefix("Heading").strip()
+                if level.isdigit():
+                    levels.setdefault(t, int(level))
         elif isinstance(block, Table):
             for row in block.rows:  # tables are flattened row by row
                 cells = [" ".join(normalize_newlines(c.text).split()) for c in row.cells]
                 row_text = TABLE_CELL_SEP.join(cells).strip()
                 if row_text.strip(TABLE_CELL_SEP.strip() + " "):
                     paras.append(row_text)
-    return Extracted(text="\n\n".join(paras), headings=headings, kind="docx")
+    return Extracted(text="\n\n".join(paras), headings=headings, heading_levels=levels, kind="docx")
 
 
 def extract_pptx(data: bytes) -> Extracted:

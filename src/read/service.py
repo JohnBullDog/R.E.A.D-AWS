@@ -27,6 +27,7 @@ from read.retrieve import (
     grades_overlap,
     hybrid_query,
     is_active,
+    is_reference_list,
     number_cites,
     rerank,
     verified,
@@ -184,6 +185,8 @@ def search(q: str, st: Stores, debug: bool = False, options: SearchOptions | Non
         ranked = rerank(q, candidates, st.rerank, st.rerank_arn, n=len(candidates))
     else:
         ranked = [(h["_source"], h["_score"]) for h in hits]
+    references = [p for p, _ in ranked if is_reference_list(p.get("text", ""))]
+    ranked = [(p, sc) for p, sc in ranked if not is_reference_list(p.get("text", ""))]
     below = [(p, sc) for p, sc in ranked if sc < opt.min_score]
     ranked = [(p, sc) for p, sc in ranked if sc >= opt.min_score]
     t3 = time.perf_counter()
@@ -226,6 +229,7 @@ def search(q: str, st: Stores, debug: bool = False, options: SearchOptions | Non
             "sources_in_grade_range": sorted(in_grades),
             "candidates": len(candidates),
             "below_min_score": len(below),
+            "reference_lists_dropped": len(references),
             "hybrid_top": [
                 {"score": round(h["_score"], 4), "chunk_id": h["_source"]["chunk_id"]}
                 for h in hits[:10]

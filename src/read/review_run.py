@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from read import review as R
 
 WORKERS = 4
+SUMMARY_ON = False  # the page's at-a-glance replaces the takeaways summary (D88)
 _QUESTION_VECS: dict[str, list[float]] = {}  # question text -> vector, reused across reviews
 
 
@@ -33,6 +34,7 @@ def run(
             "id": q["criterion_id"],
             "question": q["question"],
             "rule": q["combine"],
+            "explicit": q.get("evidence") == "explicit",  # presence question (D79)
             "core": bool(q.get("core")),
             "component": q["component"],
             "search_query": q["search_query"],
@@ -44,26 +46,36 @@ def run(
         q["criterion_id"] for q in list_b if not q.get("core") and q["criterion_id"] not in chosen_b
     ]
     a_by_id = {q["criterion_id"]: q for q in list_a}
-
-    # 3. triage
-    progress(phase="Matching questions to sections", done=0, total=len(sections))
-    for q in list_a:
-        key = q["question"] + " " + q["search_query"]
-        if key not in _QUESTION_VECS:
-            _QUESTION_VECS[key] = deps["embed"](key)
-    qvecs = {
-        q["criterion_id"]: _QUESTION_VECS[q["question"] + " " + q["search_query"]] for q in list_a
+    q_text = {q["criterion_id"]: q["question"] for q in list_a} | {
+        q["id"]: q["question"] for q in qb
     }
-    with ThreadPoolExecutor(WORKERS) as pool:
-        svecs = list(
-            pool.map(
-                lambda s: deps["embed"](
-                    " ".join(parts_by_id[i]["text"] for i in s["parts"])[:6000]
-                ),
-                sections,
+
+    # 3. triage (off by default: every section question is offered to every section)
+    if R.TRIAGE_ON and list_a:
+        progress(phase="Matching questions to sections", done=0, total=len(sections))
+        for q in list_a:
+            key = q["question"] + " " + q["search_query"]
+            if key not in _QUESTION_VECS:
+                _QUESTION_VECS[key] = deps["embed"](key)
+        qvecs = {
+            q["criterion_id"]: _QUESTION_VECS[q["question"] + " " + q["search_query"]]
+            for q in list_a
+        }
+        with ThreadPoolExecutor(WORKERS) as pool:
+            svecs = list(
+                pool.map(
+                    lambda s: deps["embed"](
+                        " ".join(parts_by_id[i]["text"] for i in s["parts"])[:6000]
+                    ),
+                    sections,
+                )
             )
-        )
-    tri = [R.triage(v, qvecs) if qvecs else {} for v in svecs]
+        tri = [R.triage(v, qvecs) for v in svecs]
+    else:
+        tri = [
+            {q["criterion_id"]: {"label": "maybe", "similarity": None} for q in list_a}
+            for _ in sections
+        ]
     offered = [[qid for qid, t in m.items() if t["label"] != "out"] for m in tri]
 
     # 4. research once per chosen question; S ids shared across the review
@@ -89,22 +101,27 @@ def run(
             ids.append(by_section_id[sid])
         q_research[qid] = ids
     texts_all = {p["id"]: p["text"] for p in parts} | {k: v["text"] for k, v in research.items()}
+    mat_texts = {p["id"]: p["text"] for p in parts}  # + a call's own research: its copy check
 
-    # 5. one call per section
-    progress(phase="Reviewing sections", done=0, total=len(sections))
+    def research_for(qids, per_question=None):
+        """S ids for these questions (best-ranked first per question), in S order."""
+        ids = {s for q in qids for s in q_research.get(q, [])[:per_question]}
+        return sorted(ids, key=lambda s: int(s[1:]))
+
+    # 5. one call per section question (D84): asked all at once with their research, Nova
+    # sometimes answers only one of them (like the whole-document verdicts, D66)
+    jobs = [(k, qid) for k in range(len(sections)) for qid in offered[k]]
+    progress(phase="Reviewing sections", done=0, total=len(jobs))
     done = {"n": 0}
 
-    def review_section(k):
+    def review_question(job):
+        k, qid = job
         sec = sections[k]
-        qa = [a_by_id[q] for q in offered[k]]
-        sec_research = sorted(
-            {s for q in offered[k] for s in q_research.get(q, [])}, key=lambda s: int(s[1:])
-        )
+        sec_research = research_for([qid], R.SECTION_RESEARCH)
         items = [{"cite_id": s, "text": research[s]["text"]} for s in sec_research]
-        labels = {q: tri[k][q]["label"] for q in offered[k]}
-        prompt = R.section_prompt(goal, sections, sec, parts_by_id, qa, labels, items, qb)
+        labels = {qid: tri[k][qid]["label"]}
+        prompt = R.section_prompt(goal, sections, sec, parts_by_id, [a_by_id[qid]], labels, items)
         res_map = {s: research[s]["text"] for s in sec_research}
-        qa_ids, qb_ids = set(offered[k]), {q["id"] for q in qb}
         fixes: list[str] = []
 
         def ask(fb):
@@ -114,31 +131,43 @@ def run(
                 prompt + (f"\n\n{fb}" if fb else ""),
                 "record_section",
                 R.SECTION_SCHEMA,
-                2500,
+                1200,
             )
-            clean, notes = R.sanitize_section(raw, qa_ids, qb_ids, sec, res_map, texts_all, labels)
+            clean, notes = R.sanitize_section(raw, {qid}, sec, res_map, mat_texts | res_map, labels)
             fixes[:] = notes
             return clean
 
-        out = R.with_retry(
-            ask, lambda o: R.validate_section(o, sec, qa_ids, qb_ids, texts_all, res_map)
-        )
-        out["fixes"] = list(fixes)
-        done["n"] += 1
-        progress(phase="Reviewing sections", done=done["n"], total=len(sections))
-        return out
-
-    def safe_section(k):  # one broken section must not stop the review
         try:
-            return review_section(k)
-        except Exception as exc:
-            return {"ok": False, "problems": [f"{type(exc).__name__}: {exc}"[:300]], "attempts": []}
+            out = R.with_retry(
+                ask,
+                lambda o: R.validate_section(o, sec, {qid}, mat_texts | res_map, res_map, q_text),
+                lambda o: R.drop_restated(o, q_text, res_map),
+            )
+        except Exception as exc:  # one broken question must not stop the review
+            out = {"ok": False, "problems": [f"{type(exc).__name__}: {exc}"[:300]], "attempts": []}
+        out["fixes"] = list(fixes) + out.get("salvaged", [])
+        done["n"] += 1
+        progress(phase="Reviewing sections", done=done["n"], total=len(jobs))
+        return k, qid, out
 
     with ThreadPoolExecutor(WORKERS) as pool:
-        sec_results = list(pool.map(safe_section, range(len(sections))))
+        by_q = list(pool.map(review_question, jobs))
+    sec_results = []
+    for k in range(len(sections)):
+        mine = [(qid, r) for kk, qid, r in by_q if kk == k]
+        good = [r for _, r in mine if r["ok"]]
+        sec_results.append(
+            {
+                "ok": bool(good) or not mine,
+                "result": {"findings": [f for r in good for f in r["result"]["findings"]]},
+                "attempts": [a for _, r in mine for a in r["attempts"]],
+                "fixes": [x for _, r in mine for x in r["fixes"]]
+                + [f"{qid}: feedback couldn't be generated" for qid, r in mine if not r["ok"]],
+                "problems": [p for _, r in mine if not r["ok"] for p in r.get("problems", [])],
+            }
+        )
 
     findings, sections_out = [], []
-    per_question = {q["id"]: {"status": None, "answers": []} for q in qb}
     for k, (sec, res) in enumerate(zip(sections, sec_results, strict=True)):
         entry = {
             "id": sec["id"],
@@ -175,56 +204,147 @@ def run(
                         "suggestions": R.show(f["suggestions"], texts_all),
                     }
                 )
-            for d in out["doc"]:
-                if d["question_id"] in per_question:
-                    per_question[d["question_id"]]["answers"].append(
-                        {
-                            "section": sec["title"],
-                            "answer": d["answer"],
-                            "material": d["material"],
-                            "note": " ".join(d.get("note", "").split())[:200],
-                        }
-                    )
         else:
             entry["problems"] = res["problems"]
         sections_out.append(entry)
     unreviewed = [s["title"] for s, r in zip(sections, sec_results, strict=True) if not r["ok"]]
 
-    # 6. combine whole-document answers
+    # 6. whole-document pass: one call per question over the whole material when it fits;
+    # otherwise each chunk answers, then a merge call per question writes the verdict
+    chunks = R.doc_chunks(parts, sections, R.DOC_CHUNK_WORDS)
+    single = len(chunks) == 1
+    per_question = {
+        q["id"]: {
+            "status": None,
+            "answers": [],
+            "single": single,
+            "cited": [],
+            "explicit": q["explicit"],
+        }
+        for q in qb
+    }
     verdicts, document_out = [], []
+    trail_attempts: list[dict] = []
     combine_res = {"ok": True, "attempts": []}
-    if qb:
-        progress(phase="Combining whole-document checks", done=0, total=1)
-        for q in qb:
-            per_question[q["id"]]["status"] = R.combine_status(
-                q["rule"], [a["answer"] for a in per_question[q["id"]]["answers"]]
-            )
-        mats = {p["id"] for p in parts}
-        all_parts = {p["id"]: p["text"] for p in parts}
+    part_attempts: list[dict] = []
+    mats = {p["id"] for p in parts}
+    all_parts = {p["id"]: p["text"] for p in parts}
+    if qb and not single:
+        jobs = [(q, c) for q in qb for c in chunks]
+        progress(phase="Reading the material in parts", done=0, total=len(jobs))
+        pdone = {"n": 0}
 
-        def combine_one(q):  # one small call per question: Nova won't fill many entries at once
-            q_res = sorted(q_research.get(q["id"], []), key=lambda s: int(s[1:]))
+        def answer_part(job):
+            q, c = job
+            prompt = R.part_prompt(goal, sections, c, [parts_by_id[m] for m in c["parts"]], q)
+            try:
+                res = R.with_retry(
+                    lambda fb: R.converse(
+                        deps["client"],
+                        R.PART_SYSTEM,
+                        prompt + (f"\n\n{fb}" if fb else ""),
+                        "record_part",
+                        R.PART_SCHEMA,
+                        500,
+                    ),
+                    lambda o: R.validate_part(o, c),
+                    R.trim_part,
+                )
+            except Exception as exc:
+                res = {"ok": False, "problems": [f"{type(exc).__name__}: {exc}"[:300]]}
+                res["attempts"] = []
+            pdone["n"] += 1
+            progress(phase="Reading the material in parts", done=pdone["n"], total=len(jobs))
+            return q, c, res
+
+        with ThreadPoolExecutor(WORKERS) as pool:
+            for q, c, res in pool.map(answer_part, jobs):
+                part_attempts += res["attempts"]
+                r = res.get("result") if res["ok"] else None
+                per_question[q["id"]]["answers"].append(
+                    {
+                        "section": c["title"],
+                        "answer": r["answer"] if r else R.UNANSWERED,
+                        "material": list(r["material"]) if r else [],
+                        "note": " ".join(str(r["note"]).split())[:300] if r else "not answered",
+                    }
+                )
+        for q in qb:
+            info = per_question[q["id"]]
+            info["status"] = R.combine_status(q["rule"], [a["answer"] for a in info["answers"]])
+            info["cited"] = sorted(
+                {m for a in info["answers"] for m in a["material"]}, key=lambda m: int(m[1:])
+            )
+    if qb:
+        # presence questions: find passages in each chunk, then confirm them one by one (D81)
+        def confirm(q):
+            try:
+                found = [
+                    m
+                    for c in chunks
+                    for m in R.find_evidence(
+                        deps["client"], q["question"], [parts_by_id[i] for i in c["parts"]]
+                    )
+                ]
+                return q["id"], R.verify_parts(deps["client"], q["question"], parts_by_id, found)
+            except Exception:  # unknown: fall back to the verdict call's own judgment
+                return q["id"], None
+
+        explicit_qs = [q for q in qb if q["explicit"]]
+        if explicit_qs:
+            progress(phase="Finding evidence", done=0, total=len(explicit_qs))
+            with ThreadPoolExecutor(WORKERS) as pool:
+                for qid, graded in pool.map(confirm, explicit_qs):
+                    per_question[qid]["confirmed"] = None if graded is None else list(graded)
+                    per_question[qid]["full"] = [
+                        m for m, g in (graded or {}).items() if g == "full"
+                    ]
+        qb = [
+            {
+                **q,
+                "confirmed": per_question[q["id"]].get("confirmed"),
+                "full": per_question[q["id"]].get("full"),
+            }
+            for q in qb
+        ]
+        progress(phase="Checking the whole document", done=0, total=len(qb))
+
+        def verdict_one(q):  # one small call per question: Nova won't fill many entries at once
+            q_res = research_for([q["id"]])
             items = [{"cite_id": s, "text": research[s]["text"]} for s in q_res]
-            prompt = R.combine_prompt(goal, [q], per_question, items)
             res_map = {s: research[s]["text"] for s in q_res}
+            if single:
+                system = R.DOC_SYSTEM
+                prompt = R.doc_prompt(goal, sections, parts, q, items)
+            else:
+                system = R.COMBINE_SYSTEM
+                cited = [parts_by_id[m] for m in per_question[q["id"]]["cited"]]
+                prompt = R.combine_prompt(goal, [q], per_question, items, cited)
+            confirmed = per_question[q["id"]].get("confirmed")
+
+            def ask(fb):
+                out = R.sanitize_combine(
+                    R.converse(
+                        deps["client"],
+                        system,
+                        prompt + (f"\n\n{fb}" if fb else ""),
+                        "record_verdicts",
+                        R.COMBINE_SCHEMA,
+                        1200,
+                    ),
+                    res_map,
+                    all_parts,
+                    q["id"],
+                )
+                return R.set_confirmed(out, confirmed, per_question[q["id"]].get("full"))
+
             try:
                 return R.with_retry(
-                    lambda fb: R.sanitize_combine(
-                        R.converse(
-                            deps["client"],
-                            R.COMBINE_SYSTEM,
-                            prompt + (f"\n\n{fb}" if fb else ""),
-                            "record_verdicts",
-                            R.COMBINE_SCHEMA,
-                            1200,
-                        ),
-                        res_map,
-                        all_parts,
-                        q["id"],
-                    ),
+                    ask,
                     lambda o: R.validate_combine(
-                        o, {q["id"]}, per_question, mats, texts_all, res_map
+                        o, {q["id"]}, per_question, mats, mat_texts | res_map, res_map, q_text
                     ),
+                    lambda o: R.salvage_verdicts(o, all_parts, res_map),
                 )
             except Exception as exc:
                 return {
@@ -234,15 +354,77 @@ def run(
                 }
 
         with ThreadPoolExecutor(WORKERS) as pool:
-            combined = list(pool.map(combine_one, qb))
+            combined = list(pool.map(verdict_one, qb))
         combine_res = {
             "ok": all(c["ok"] for c in combined),
-            "attempts": [a for c in combined for a in c["attempts"]],
+            "attempts": part_attempts + [a for c in combined for a in c["attempts"]],
         }
         got = {}
         for c in combined:
             for v in c.get("result", {}).get("verdicts", []) if c["ok"] else []:
                 got[v["question_id"]] = v
+
+        # 6c. evidence trail per verdict (D88)
+        where_of = {m: sec["title"] for sec in sections for m in sec["owned"]}
+        progress(phase="Laying out the evidence", done=0, total=len(got))
+        tdone = {"n": 0}
+
+        def trail_one(q):
+            v = got[q["id"]]
+            cited = [
+                m
+                for x in v.get("observation") or []
+                for m in x.get("material") or []
+                if m in parts_by_id
+            ]
+            ids = list(dict.fromkeys(list(v.get(R.VERIFIED) or []) + cited))
+            ids += [m for m in per_question[q["id"]].get("confirmed") or [] if m not in ids]
+            ids = ids[:6]
+            q_res = research_for([q["id"]])
+            items = [{"cite_id": x, "text": research[x]["text"]} for x in q_res]
+            res_map = {x: research[x]["text"] for x in q_res}
+            prompt = R.trail_prompt(goal, q, v, [parts_by_id[m] for m in ids], items)
+
+            def ask(fb):
+                return R.sanitize_trail(
+                    R.converse(
+                        deps["client"],
+                        R.TRAIL_SYSTEM,
+                        prompt + (f"\n\n{fb}" if fb else ""),
+                        "record_trail",
+                        R.TRAIL_SCHEMA,
+                        1500,
+                    ),
+                    v["verdict"],
+                    set(ids),
+                )
+
+            try:
+                res = R.with_retry(
+                    ask,
+                    lambda o: R.validate_trail(o, mat_texts, res_map),
+                    lambda o: R.salvage_trail(o, mat_texts, res_map),
+                )
+                view = None
+                if res["ok"]:
+                    view = R.trail_view(
+                        R.research_checks(res["result"], res_map, deps["client"], q["question"]),
+                        texts_all,
+                        where_of,
+                    )
+            except Exception as exc:
+                res = {"ok": False, "problems": [f"{type(exc).__name__}: {exc}"[:300]]}
+                res["attempts"], view = [], None
+            tdone["n"] += 1
+            progress(phase="Laying out the evidence", done=tdone["n"], total=len(got))
+            return q["id"], view, res
+
+        with ThreadPoolExecutor(WORKERS) as pool:
+            trails = {
+                qid: (view, res)
+                for qid, view, res in pool.map(trail_one, [q for q in qb if q["id"] in got])
+            }
+        trail_attempts = [a for _, res in trails.values() for a in res["attempts"]]
         for q in qb:
             v = got.get(q["id"])
             row = {
@@ -252,6 +434,7 @@ def run(
                 "component": q["component"],
                 "answers": per_question[q["id"]]["answers"],
                 "status": per_question[q["id"]]["status"],
+                "fixes": combined[qb.index(q)].get("salvaged", []),
             }
             if v:
                 did = f"D{len(verdicts) + 1}"
@@ -271,13 +454,18 @@ def run(
                     "verdict": v["verdict"],
                     "observation": R.show(v["observation"], texts_all),
                     "suggestions": R.show(v["suggestions"], texts_all),
+                    "evidence_checked": v.get(R.VERIFIED),
+                    "evidence_confirmed": per_question[q["id"]].get("confirmed"),
+                    "trail": trails.get(q["id"], (None, {}))[0],
+                    "trail_fixes": trails.get(q["id"], (None, {}))[1].get("salvaged", []),
+                    "trail_problems": trails.get(q["id"], (None, {}))[1].get("problems", []),
                 }
             document_out.append(row)
 
     # 7. summary
-    progress(phase="Writing the summary", done=0, total=1)
     summary = {"ok": False, "takeaways": [], "attempts": []}
-    if findings or verdicts:
+    if SUMMARY_ON and (findings or verdicts):
+        progress(phase="Writing the summary", done=0, total=1)
         cited = sorted(
             {c for x in findings + verdicts for c in x["cites"]}, key=lambda s: int(s[1:])
         )
@@ -298,6 +486,7 @@ def run(
                 res_map,
             ),
             lambda o: R.validate_summary(o, ref_ids, res_map),
+            R.salvage_summary,
         )
         summary = {"ok": sres["ok"], "attempts": sres["attempts"], "takeaways": []}
         if sres["ok"]:
@@ -314,6 +503,7 @@ def run(
         sum(len(r["attempts"]) for r in sec_results)
         + len(combine_res["attempts"])
         + len(summary["attempts"])
+        + len(trail_attempts)
     )
     return {
         "goal": goal,
@@ -330,5 +520,6 @@ def run(
             "model_calls": calls + 1,
             "seconds": round(time.time() - t0, 1),
             "research_sections": len(research),
+            "doc_chunks": len(chunks),
         },
     }

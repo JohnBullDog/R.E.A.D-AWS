@@ -17,6 +17,9 @@ CANDIDATES = 40
 TOP_N = 8  # sections kept after reranking
 MAX_WORDS = 9000  # evidence budget; whole sections are dropped, never truncated
 QUERY_MAX_CHARS = 500
+YEAR_CITE = re.compile(r"\((?:19|20)\d{2}[a-z]?\)")  # "(2005)" as in a reference list
+REF_LIST_MIN = 3  # at least this many author-year citations...
+REF_LIST_PER_100 = 1.5  # ...and this many per 100 words: a bibliography or endnotes (D87)
 
 AUTHORITY = {  # starting weights; tune with the SME
     "practice_guide": 1.00,  # IES/WWC practice guides
@@ -240,3 +243,10 @@ def grades_overlap(work: dict, lo: int | None, hi: int | None) -> bool:
     lo = -1 if lo is None else lo
     hi = 12 if hi is None else hi
     return any(a <= hi and b >= lo for a, b in bands)
+
+
+def is_reference_list(text: str) -> bool:
+    """A passage that is mostly author-year citations (a bibliography or endnotes), not guidance:
+    it is never returned as research."""
+    n = len(YEAR_CITE.findall(text))
+    return n >= REF_LIST_MIN and n * 100 / max(len(text.split()), 1) >= REF_LIST_PER_100

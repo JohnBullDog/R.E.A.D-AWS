@@ -2,7 +2,7 @@
   "status": "DEVELOPMENT PLACEHOLDER",
   "note": "These review questions were drafted by Claude for development and testing only. They must be rewritten by Addison Robertson (subject-matter expert) before any teacher use. Do not treat them as validated guidance. Which questions are whole-document questions, and which of those are core (always run), is also Addison's call.",
   "owner": "Addison Robertson (SME), pending rewrite",
-  "version": "dev-0.2",
+  "version": "dev-0.4",
   "criteria": [
     {
       "criterion_id": "oral-academic-language",
@@ -64,11 +64,12 @@
       "criterion_id": "doc-objective",
       "scope": "document",
       "core": true,
-      "combine": "any",
+      "combine": "judge",
       "component": "Planning",
       "grade_band": "K-5",
       "question": "Does the material state what students will learn, in a way the teacher could check?",
-      "search_query": "clear learning objective for reading instruction lesson goals"
+      "search_query": "clear learning objective for reading instruction lesson goals",
+      "evidence": "explicit"
     },
     {
       "criterion_id": "doc-alignment",
@@ -78,7 +79,8 @@
       "component": "Planning",
       "grade_band": "K-5",
       "question": "Do the activities work toward the stated goal?",
-      "search_query": "align instruction and activities to the learning goal"
+      "search_query": "align instruction and activities to the learning goal",
+      "evidence": "judgment"
     },
     {
       "criterion_id": "doc-sequence",
@@ -88,27 +90,30 @@
       "component": "Planning",
       "grade_band": "K-5",
       "question": "Does the material build skills in a planned order, simple to complex?",
-      "search_query": "systematic sequence of instruction simple to complex skills"
+      "search_query": "systematic sequence of instruction simple to complex skills",
+      "evidence": "judgment"
     },
     {
       "criterion_id": "doc-check-learning",
       "scope": "document",
       "core": true,
-      "combine": "any",
+      "combine": "judge",
       "component": "Assessment",
       "grade_band": "K-5",
       "question": "Does the material check whether students learned the skill?",
-      "search_query": "assess student progress monitor reading skills"
+      "search_query": "assess student progress monitor reading skills",
+      "evidence": "explicit"
     },
     {
       "criterion_id": "doc-support",
       "scope": "document",
       "core": false,
-      "combine": "any",
+      "combine": "judge",
       "component": "Differentiation",
       "grade_band": "K-5",
       "question": "Does the material plan support for students who need extra help or challenge?",
-      "search_query": "small group instruction support struggling readers differentiation"
+      "search_query": "small group instruction support struggling readers differentiation",
+      "evidence": "explicit"
     },
     {
       "criterion_id": "doc-practice-time",
@@ -118,7 +123,8 @@
       "component": "Instruction",
       "grade_band": "K-5",
       "question": "Do students get enough time actively practicing the target skill?",
-      "search_query": "daily practice time active student practice reading skills"
+      "search_query": "daily practice time active student practice reading skills",
+      "evidence": "judgment"
     },
     {
       "criterion_id": "doc-ms-standards",
@@ -128,7 +134,8 @@
       "component": "Mississippi standards",
       "grade_band": "K-5",
       "question": "Which Mississippi ELA standards for this grade does the material address as a whole?",
-      "search_query": "Mississippi College and Career Readiness Standards English Language Arts foundational skills grade"
+      "search_query": "Mississippi College and Career Readiness Standards English Language Arts foundational skills grade",
+      "evidence": "judgment"
     }
   ]
 }
