@@ -69,4 +69,16 @@
       await ask(Boolean(code));
     }
   };
+
+  // Ask up front instead of after the first question: check the saved passcode (or the lack of
+  // one) as soon as the page opens. A missing or wrong passcode opens the box until it works.
+  // corner badge: the same pages run on AWS ("Cloud dev") and on this PC's dev server
+  function badge() {
+    if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) return;
+    document.querySelectorAll(".devtag").forEach((t) => { t.textContent = "Local dev"; });
+  }
+  function check() { window.fetch("api/ping").catch(() => {}); }
+  function start() { badge(); check(); }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
 })();

@@ -114,6 +114,11 @@ def create_app(env: Env) -> FastAPI:
 
     # ---------------- teacher API ----------------
 
+    @app.get("/api/ping")
+    def api_ping():
+        """Cheap passcode check: pages call it on load so the passcode box shows up front."""
+        return {"ok": True}
+
     @app.post("/api/search")
     def api_search(body: SearchIn):
         opts = service.SearchOptions(**body.model_dump(exclude={"query", "debug"}))

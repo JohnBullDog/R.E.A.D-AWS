@@ -51,6 +51,7 @@ def test_pages_and_auth_script_are_served(env):
         r = c.get(path)
         assert r.status_code == 200 and '<script src="auth.js"></script>' in r.text
     assert "X-Read-Passcode" in c.get("/auth.js").text
+    assert c.get("/api/ping").json() == {"ok": True}  # passcode is enforced by API Gateway
 
 
 def test_review_state_round_trips_through_the_temp_store(env, monkeypatch):
