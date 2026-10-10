@@ -154,7 +154,10 @@ def test_disagreement_triggers_a_reconsidered_verdict(monkeypatch):
     rows = {d["question_id"]: d for d in res["document"]}
     learn = rows["doc-check-learning"]["second_opinion"]
     assert learn["first"] == "met" and learn["verdict"] == "partly"
-    assert learn["status"] == "reconsidered" and learn["final"] in ("met", "partly")
+    assert learn["status"] == "uncertain"
+    # the fake verdict call can't give 'partly', so the cautious re-decision isn't accepted
+    # and the original stands, flagged uncertain (never an unvalidated verdict)
+    assert learn["final"] == "met" and rows["doc-check-learning"]["verdict"] == "met"
     assert client.calls.count("record_reading") == 1  # only where evidence was found
     # alignment: the evidence step found nothing, so the verdict was missing by rule, unread
     assert rows["doc-alignment"]["second_opinion"]["status"] == "not needed"

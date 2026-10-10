@@ -359,15 +359,15 @@ function processNote(d) {
     t.append(el("strong", null, "Independent check agreed. "),
       document.createTextNode(`A second reading of the same evidence, made without seeing the verdict, also concluded ${STATUS[so.verdict] || so.verdict}.`));
     a.append(t); box.append(a);
-  } else if (so.status === "reconsidered") {
+  } else if (so.status === "uncertain" || so.status === "reconsidered") {
     const a = el("div", "alert warn slim");
     const t = el("div");
     const changed = so.final && so.final !== so.first;
-    t.append(el("strong", null, "Independent check disagreed. "),
-      document.createTextNode(`A second reading of the same evidence, made without seeing the verdict, concluded ${STATUS[so.verdict] || so.verdict}: ${so.reason || ""} `),
+    t.append(el("strong", null, "Uncertain: two readings disagreed. "),
+      document.createTextNode(`The first reading of the evidence said ${STATUS[so.first] || so.first}. A second reading, made without seeing it, said ${STATUS[so.verdict] || so.verdict}: ${so.reason || ""} `),
       document.createTextNode(changed
-        ? `The verdict was reconsidered with both readings and changed from ${STATUS[so.first] || so.first} to ${STATUS[so.final] || so.final}.`
-        : `The verdict was reconsidered with both readings and stayed ${STATUS[so.first] || so.first}. Treat this check as less certain.`));
+        ? `R.E.A.D. keeps the more cautious reading, so this check shows ${STATUS[so.final] || so.final}.`
+        : `R.E.A.D. keeps the more cautious reading, ${STATUS[so.final] || so.final}. Look at the evidence below with this in mind.`));
     a.append(t); box.append(a);
   } else if (so.status === "not needed") {
     box.append(el("span", "hint", "No evidence was found in the material for this check, so it is Not met by rule; there was nothing for an independent reading to weigh."));
@@ -515,7 +515,7 @@ function atAGlance(r) {
       history.replaceState(null, "", a.href);
     });
     row.append(a, statusEl(d.verdict || d.status));
-    if ((d.second_opinion || {}).status === "reconsidered") row.append(el("span", "tag warn", "Reconsidered"));
+    if (["uncertain", "reconsidered"].includes((d.second_opinion || {}).status)) row.append(el("span", "tag warn", "Uncertain"));
     c1.append(row);
   }
 

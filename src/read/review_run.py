@@ -397,19 +397,27 @@ def run(
                 return res
             opinion = {**blind, "first": first, "final": first, "status": "agreed"}
             if blind["verdict"] != first:
-                look = R.second_look(blind)
-                try:
-                    again = R.with_retry(
-                        lambda fb: ask(f"{look}\n\n{fb}" if fb else look), check, salvage
+                # D102: disagreement lowers confidence, never the bar. The more cautious reading
+                # wins: a lower independent reading re-decides the verdict down to it (still
+                # validated against the evidence rules); a higher one leaves it as it was.
+                opinion["status"] = "uncertain"
+                if R.VERDICTS.index(blind["verdict"]) > R.VERDICTS.index(first):
+                    look = R.second_look(blind)
+                    try:
+                        again = R.with_retry(
+                            lambda fb: ask(f"{look}\n\n{fb}" if fb else look), check, salvage
+                        )
+                    except Exception:
+                        again = {"ok": False, "attempts": []}
+                    res["attempts"] += again.get("attempts", [])
+                    final = (
+                        next(iter(again["result"].get("verdicts") or []), {}).get("verdict")
+                        if again["ok"]
+                        else None
                     )
-                except Exception:
-                    again = {"ok": False, "attempts": []}
-                res["attempts"] += again.get("attempts", [])
-                if again["ok"]:
-                    res = {**again, "attempts": res["attempts"]}
-                    final = next(iter(again["result"].get("verdicts") or []), {}).get("verdict")
-                    opinion["final"] = final
-                opinion["status"] = "reconsidered"
+                    if final == blind["verdict"]:  # only accept the cautious verdict itself
+                        res = {**again, "attempts": res["attempts"]}
+                        opinion["final"] = final
             res["second_opinion"] = opinion
             return res
 

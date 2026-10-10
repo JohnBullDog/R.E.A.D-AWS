@@ -1533,8 +1533,9 @@ def second_look(blind: dict) -> str:
     """Feedback for re-deciding a verdict the independent reading disagreed with."""
     return (
         "An independent reading of the same evidence, made without seeing your verdict, "
-        f"concluded {blind['verdict']}: {blind['reason']} Weigh both readings against the "
-        "evidence and give the verdict the evidence supports. Follow all the rules."
+        f"concluded {blind['verdict']}: {blind['reason']} When two readings disagree, the more "
+        f"cautious one stands: give the verdict {blind['verdict']}, with observations and "
+        "suggestions that fit it. Follow all the rules."
     )
 
 
