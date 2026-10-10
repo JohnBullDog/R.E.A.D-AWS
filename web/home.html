@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R.E.A.D. Home</title>
+<script>/* relative links resolve under /READ/ when served from bucklersoftware.com/READ */(function(){var b=document.createElement("base");b.href=/^\/read(\/|$)/i.test(location.pathname)?"/READ/":"/";document.head.appendChild(b);})();</script>
+<link rel="stylesheet" href="style.css">
+<script src="auth.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path><path d="M4 5.5v16"></path><path d="M9 8h7M9 12h5"></path></svg>R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></a>
+  <span class="devtag">Cloud dev</span>
+</header>
+<div class="app">
+<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="./" class="on" aria-current="page">Home</a><a href="ask_a_question">Ask a question</a><a href="review_material">Review material</a><a href="sources">Sources</a><a href="checklist">Checklist</a></nav>
+<main>
+  <h1>Welcome to R.E.A.D.</h1>
+  <p class="sub">The Reading Educator Assistance Desk gives K&ndash;5 educators answers and feedback grounded in Science of Reading research, with every source shown word for word.</p>
+
+  <div class="alert info"><div><strong>Preview.</strong> R.E.A.D. is a proof of concept. Its answers are advisory: read the cited research and use your professional judgment.</div></div>
+
+  <div class="tiles">
+    <a class="tile" href="ask_a_question">
+      <span class="tile-title">Ask a question</span>
+      <span>Ask about phonemic awareness, phonics, fluency, vocabulary, or comprehension in plain language. You get a short answer with numbered citations to the research it came from.</span>
+      <span class="tile-go">Ask a question &rsaquo;</span>
+    </a>
+    <a class="tile" href="review_material">
+      <span class="tile-title">Review teaching material</span>
+      <span>Upload a sample lesson plan, unit, worksheet, or slide deck. See which goals and checks it meets, the evidence behind each conclusion, and research-backed ways to improve it.</span>
+      <span class="tile-go">Review material &rsaquo;</span>
+    </a>
+  </div>
+
+  <h2>How to use it</h2>
+  <div class="cols3 howto">
+    <div>
+      <h3>1. Ask or upload</h3>
+      <p>Type a question as you would ask a colleague, or upload material and confirm the goal R.E.A.D. reads from it (grade band, focus, objective).</p>
+    </div>
+    <div>
+      <h3>2. Check the evidence</h3>
+      <p>Click a citation number to read the exact passage from the source. Quotes are copied from the research by code, never written by the AI, and checked against the original.</p>
+    </div>
+    <div>
+      <h3>3. Use your judgment</h3>
+      <p>Each answer shows how strong the evidence is (strong, limited, mixed, or contested) and when the research library was last updated. Treat it as a starting point, not a ruling.</p>
+    </div>
+  </div>
+
+  <h2>Good to know</h2>
+  <ul class="notes">
+    <li><strong>Only the research library.</strong> Answers come only from the openly licensed sources listed on the <a href="sources">Sources</a> page. If they don't cover a question, R.E.A.D. says so.</li>
+    <li><strong>No student or teacher data.</strong> Upload sample material only. Uploaded material is never added to the library and is deleted after 24 hours.</li>
+    <li><strong>The review checklist is a draft.</strong> Its questions are placeholders until the project's reading specialist rewrites them.</li>
+  </ul>
+
+  <h2>Your recent reviews</h2>
+  <p class="hint">Reviews run in this browser. Results stay available for 24 hours, then they are deleted.</p>
+  <div id="recent" class="panel"></div>
+</main>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const DAY = 24 * 3600 * 1000;
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function recent() {
+  try { return JSON.parse(localStorage.getItem("read-reviews") || "[]"); } catch (e) { return []; }
+}
+
+(function render() {
+  const box = $("recent");
+  const now = Date.now();
+  const list = recent().filter((r) => r && r.rid && now - r.at < 7 * DAY);  // forget after a week
+  try { localStorage.setItem("read-reviews", JSON.stringify(list)); } catch (e) { /* private window */ }
+  if (!list.length) {
+    box.append(el("p", "hint", "No reviews yet. Reviews you run on this computer will appear here."));
+    return;
+  }
+  for (const r of list.sort((a, b) => b.at - a.at)) {
+    const row = el("div", "recent-row");
+    const live = now - r.at < DAY;
+    const name = el(live ? "a" : "span", "recent-name", r.title || "Material");
+    if (live) name.href = "review_material?review=" + encodeURIComponent(r.rid);
+    const when = new Date(r.at).toLocaleString([], {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+    row.append(name, el("span", "hint", (r.goal ? r.goal + " · " : "") + when),
+               el("span", live ? "tag ok" : "tag", live ? "Open" : "Expired"));
+    box.append(row);
+  }
+})();
+</script>
+</body>
+</html>

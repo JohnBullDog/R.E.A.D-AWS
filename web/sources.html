@@ -10,11 +10,11 @@
 </head>
 <body>
 <header class="top">
-  <span class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path><path d="M4 5.5v16"></path><path d="M9 8h7M9 12h5"></path></svg>R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></span>
+  <a class="brand" href="./"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path><path d="M4 5.5v16"></path><path d="M9 8h7M9 12h5"></path></svg>R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></a>
   <span class="devtag">Cloud dev</span>
 </header>
 <div class="app">
-<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="./">Ask a question</a><a href="review">Review material</a><a href="sources" class="on" aria-current="page">Sources</a><a href="checklist">Checklist</a></nav>
+<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="./">Home</a><a href="ask_a_question">Ask a question</a><a href="review_material">Review material</a><a href="sources" class="on" aria-current="page">Sources</a><a href="checklist">Checklist</a></nav>
 <main>
   <nav class="crumbs" aria-label="Breadcrumbs"><a href="./">R.E.A.D.</a><span aria-hidden="true">›</span><span>Sources</span></nav>
   <h1>Sources</h1>
@@ -102,7 +102,7 @@
         <label>License (what the source's terms say)<input name="license" type="text"></label>
         <label class="check"><input name="peer_reviewed" type="checkbox"> Peer reviewed</label>
       </div>
-      <p class="notice">Uploaded files are stored in <code>corpus/</code>. After ingesting, the source waits for license sign-off before it becomes searchable. No student, teacher, or district data.</p>
+      <p class="notice">Uploaded files are stored in a private, encrypted S3 bucket (up to 4 MB here; larger sources go through <code>scripts/ingest.py</code>). After ingesting, the source waits for license sign-off before it becomes searchable. No student, teacher, or district data.</p>
       <div class="row"><button id="upGo" type="submit">Ingest</button><span id="upErr" class="err"></span></div>
     </form>
     <div id="job" class="log" hidden></div>

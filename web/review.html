@@ -10,11 +10,11 @@
 </head>
 <body>
 <header class="top">
-  <span class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path><path d="M4 5.5v16"></path><path d="M9 8h7M9 12h5"></path></svg>R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></span>
+  <a class="brand" href="./"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path><path d="M4 5.5v16"></path><path d="M9 8h7M9 12h5"></path></svg>R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></a>
   <span class="devtag">Cloud dev</span>
 </header>
 <div class="app">
-<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="./">Ask a question</a><a href="review" class="on" aria-current="page">Review material</a><a href="sources">Sources</a><a href="checklist">Checklist</a></nav>
+<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="./">Home</a><a href="ask_a_question">Ask a question</a><a href="review_material" class="on" aria-current="page">Review material</a><a href="sources">Sources</a><a href="checklist">Checklist</a></nav>
 <main>
   <nav class="crumbs" aria-label="Breadcrumbs"><a href="./">R.E.A.D.</a><span aria-hidden="true">›</span><span>Review material</span></nav>
   <h1>Review teaching material</h1>
@@ -81,6 +81,16 @@ let rid = null;
 let docQuestions = [];
 let materialParts = {};
 let research = {};
+let materialName = "";
+
+// Recent reviews for the home page (this browser only; the review itself is deleted after 24 h)
+function remember(id) {
+  try {
+    const list = JSON.parse(localStorage.getItem("read-reviews") || "[]").filter((r) => r.rid !== id);
+    list.unshift({rid: id, title: materialName || "Pasted material", goal: ($("gObj").value || "").slice(0, 120), at: Date.now()});
+    localStorage.setItem("read-reviews", JSON.stringify(list.slice(0, 20)));
+  } catch (e) { /* private window or storage blocked: the home page just won't list it */ }
+}
 
 async function call(method, url, body) {
   const r = await fetch(url, body instanceof FormData ? {method, body} :
@@ -94,6 +104,7 @@ $("up").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   $("upMsg").textContent = "";
   const f = $("file").files[0];
+  materialName = f ? f.name : "Pasted material";
   if (!f && !$("paste").value.trim()) { $("upMsg").textContent = "Choose a file or paste the material."; return; }
   if (!$("synthetic").checked) { $("upMsg").textContent = "Please confirm this is sample material."; return; }
   const body = new FormData();
@@ -165,7 +176,8 @@ $("runBtn").addEventListener("click", async () => {
       materialParts = Object.fromEntries(st.material.parts.map((p) => [p.id, p]));
       if (st.state === "failed") { $("progress").textContent = ""; $("progress").append(el("span", "err", "The review failed: " + st.error)); break; }
       if (st.state === "done") {
-        history.replaceState(null, "", `review?review=${rid}`);
+        history.replaceState(null, "", `review_material?review=${rid}`);
+        remember(rid);
         $("step1").hidden = true; $("step2").hidden = true;
         renderResults(st.result, st.disclaimer);
         break;
@@ -527,7 +539,7 @@ function renderResults(r, disclaimer) {
   t.firstChild.style.margin = "0";
   const again = el("button", "ghost", "Review new material");
   again.type = "button";
-  again.addEventListener("click", () => { location.href = "review"; });
+  again.addEventListener("click", () => { location.href = "review_material"; });
   head.append(t, again);
   box.append(head);
 

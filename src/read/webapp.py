@@ -13,8 +13,8 @@ from datetime import date
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 from read import pipeline, review, service
@@ -26,13 +26,16 @@ from read.jobs import CHECKLIST_KEY, WEB, Env
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 NO_CACHE = {"Cache-Control": "no-cache"}  # pages and styles always revalidate
 PAGES = {
-    "/": "index.html",
+    "/": "home.html",
+    "/ask_a_question": "index.html",
+    "/review_material": "review.html",
     "/sources": "sources.html",
-    "/review": "review.html",
     "/checklist": "checklist.html",
     "/style.css": "style.css",
     "/auth.js": "auth.js",
 }
+# old addresses keep working; relative targets stay under /READ/ on bucklersoftware.com
+MOVED = {"/review": "review_material"}
 GONE = "review not found (material is deleted after 24 hours)"
 # Defense in depth for pages that render corpus and model text (rule 9 is the main control):
 # scripts and requests only to this site, fonts from Google Fonts, no framing.
@@ -139,6 +142,14 @@ def create_app(env: Env) -> FastAPI:
             return FileResponse(WEB / name, headers=NO_CACHE)
 
         app.add_api_route(route, page, methods=["GET"], include_in_schema=False)
+
+    for route, target in MOVED.items():
+
+        def moved(request: Request, target: str = target):
+            query = f"?{request.url.query}" if request.url.query else ""
+            return RedirectResponse(target + query, status_code=308)
+
+        app.add_api_route(route, moved, methods=["GET"], include_in_schema=False)
 
     # ---------------- teacher API ----------------
 

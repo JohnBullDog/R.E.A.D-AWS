@@ -362,3 +362,25 @@ details.secs > summary { cursor: pointer; padding: 12px 0; font-weight: 700; col
   header.top { padding: 0 16px; }
   .hide-sm { display: none; }
 }
+
+/* ---------- home page ---------- */
+header.top a.brand { text-decoration: none; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 20px 0 8px; }
+.tile {
+  display: flex; flex-direction: column; gap: 8px; padding: 20px;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--panel);
+  color: var(--ink); text-decoration: none;
+}
+.tile:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(0, 7, 22, 0.12); }
+.tile-title { font-size: 18px; line-height: 22px; font-weight: 700; color: var(--heading); }
+.tile-go { margin-top: auto; font-weight: 700; color: var(--accent); }
+.howto p { margin: 0; color: var(--secondary); }
+.notes { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.recent-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.recent-row:last-child { border-bottom: 0; }
+.recent-name { font-weight: 700; }
+.recent-row .tag { margin-left: auto; }
+@media (max-width: 720px) {
+  .howto.cols3 { grid-template-columns: 1fr; }
+  .howto.cols3 > div { padding: 0; border-left: 0; }
+}

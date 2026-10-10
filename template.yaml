@@ -145,13 +145,19 @@ Resources:
               Action: lambda:InvokeFunction
               Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:read-poc-worker
       Events:
-        TestPage:
+        TestPage: # the home page (logical ID kept so the GET / route isn't recreated)
           Type: HttpApi
           Properties: {ApiId: !Ref Api, Path: /, Method: GET, Auth: {Authorizer: NONE}}
         SourcesPage:
           Type: HttpApi
           Properties: {ApiId: !Ref Api, Path: /sources, Method: GET, Auth: {Authorizer: NONE}}
-        ReviewPage:
+        AskPage:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: /ask_a_question, Method: GET, Auth: {Authorizer: NONE}}
+        ReviewMaterialPage:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: /review_material, Method: GET, Auth: {Authorizer: NONE}}
+        ReviewPage: # old address: redirects to /review_material
           Type: HttpApi
           Properties: {ApiId: !Ref Api, Path: /review, Method: GET, Auth: {Authorizer: NONE}}
         ChecklistPage:

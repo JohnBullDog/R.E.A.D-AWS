@@ -47,7 +47,11 @@ def env(tmp_path, monkeypatch):
 
 def test_pages_and_auth_script_are_served(env):
     c = TestClient(create_app(env))
-    for path in ("/", "/sources", "/review", "/checklist"):
+    assert "Welcome to R.E.A.D." in c.get("/").text
+    assert "Ask a Science of Reading question" in c.get("/ask_a_question").text
+    old = c.get("/review?review=abc123", follow_redirects=False)
+    assert old.status_code == 308 and old.headers["location"] == "review_material?review=abc123"
+    for path in ("/", "/ask_a_question", "/sources", "/review_material", "/checklist"):
         r = c.get(path)
         assert r.status_code == 200 and '<script src="auth.js"></script>' in r.text
     assert "X-Read-Passcode" in c.get("/auth.js").text
