@@ -882,6 +882,25 @@ def question_line(q: dict, part: bool = False) -> str:
         scale = VERDICT_SCALE if q.get("explicit") else JUDGMENT_SCALE
     line = f"Whole-document question {q['id']}: {q['question']}\nScale: {scale}"
     conf = q.get("confirmed")
+    if not part and conf is not None and not q.get("explicit"):  # judgment question (D98)
+        against, strong = q.get("against") or [], set(q.get("strong") or [])
+        if conf or against:
+            clear = [m for m in conf if m in strong]
+            some = [m for m in conf if m not in strong]
+            line += (
+                "\nBefore your verdict, a separate check gathered and graded the evidence: "
+                f"clearly does this: {', '.join(clear) or 'none'}; only generally or in part: "
+                f"{', '.join(some) or 'none'}; works against this: {', '.join(against) or 'none'}. "
+                "Base the verdict on this evidence and cite the passages it rests on: met only if "
+                "a passage clearly does it and none works against it; missing only if none does "
+                "it at all."
+            )
+        else:
+            line += (
+                "\nBefore your verdict, a separate check found no passage that bears on this: "
+                "the verdict is missing."
+            )
+        return line
     if not part and conf is not None:
         full = set(q.get("full") or [])
         graded = ", ".join(f"{m} ({'all of it' if m in full else 'part of it'})" for m in conf)
@@ -1387,6 +1406,138 @@ def verify_parts(client, question: str, parts_by_id: dict, ids: list[str]) -> di
     return dict(sorted(graded.items(), key=lambda kv: int(kv[0][1:])))
 
 
+GATHER_SYSTEM = (
+    "You gather evidence in a teacher's material for one question about the material as a whole. "
+    f"List the M ids of up to {FIND_MAX} passages that most directly show whether the material "
+    "does this: passages that show it doing it AND passages that show it not doing it or doing "
+    "the opposite, most telling first. Leave the list empty if no passage bears on it. "
+    + GOAL_NOT_MATERIAL
+    + UNTRUSTED
+)
+STANCE_SYSTEM = (
+    "You check passages from a teacher's material against one question about the material as a "
+    "whole. For each passage, grade what the passage itself shows: strong if it clearly and "
+    "specifically does what the question asks (for a standards question it names or plainly "
+    "matches a specific standard; for alignment the activity directly practises the goal's "
+    "skill; for practice time it gives students a stated stretch of practice); some if it does "
+    "so only generally, in part, or by implication; against if it shows the material not doing "
+    "it or doing the opposite (an activity unrelated to the goal, a skill taught before what it "
+    "builds on); neutral if it does not bear on the question. Being on the same topic is not "
+    "enough for strong. " + GOAL_NOT_MATERIAL + UNTRUSTED
+)
+STANCE_SCHEMA = {
+    "type": "object",
+    "required": ["passages"],
+    "properties": {
+        "passages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "stance"],
+                "properties": {
+                    "id": {"type": "string", "pattern": "^M[0-9]+$"},
+                    "stance": {
+                        "type": "string",
+                        "enum": ["strong", "some", "against", "neutral"],
+                    },
+                },
+            },
+        }
+    },
+}
+
+
+def gather_evidence(client, context: str, question: str, chunk_parts: list[dict]) -> list[str]:
+    """Candidate passages for a judgment question in one chunk, for and against (one call)."""
+    text = f"{context}\n\n{material_block(chunk_parts)}\n\nQuestion: {question}"
+    out = converse(client, GATHER_SYSTEM, text, "record_passages", FIND_SCHEMA, 400)
+    ids = {p["id"] for p in chunk_parts}
+    found = [m for m in out.get("passages") or [] if isinstance(m, str) and m in ids]
+    return list(dict.fromkeys(found))[:FIND_MAX]
+
+
+def grade_stance(
+    client, context: str, question: str, parts_by_id: dict, ids: list[str]
+) -> dict[str, str]:
+    """Grade each passage on its own: {id: 'strong' | 'some' | 'against'}; neutral ones are
+    left out."""
+    ids = sorted(set(ids) & set(parts_by_id), key=lambda m: int(m[1:]))
+    graded: dict[str, str] = {}
+    for k in range(0, len(ids), MAX_EVIDENCE):
+        batch = ids[k : k + MAX_EVIDENCE]
+        text = (
+            f"{context}\n\nQuestion: {question}\n\n"
+            f"{material_block([parts_by_id[m] for m in batch])}\n\n"
+            "For each passage: strong, some, against, or neutral?"
+        )
+        res = converse(client, STANCE_SYSTEM, text, "record_check", STANCE_SCHEMA, 400)
+        for x in res.get("passages") or []:
+            if (
+                isinstance(x, dict)
+                and x.get("id") in batch
+                and x.get("stance") in ("strong", "some", "against")
+            ):
+                graded[x["id"]] = x["stance"]
+    return dict(sorted(graded.items(), key=lambda kv: int(kv[0][1:])))
+
+
+# ---------------- independent second opinion (D99) ----------------
+
+BLIND_SYSTEM = (
+    "You judge one question about a teacher's material from the evidence given: passages from the "
+    "material, what a separate check found each one shows, and research sections on good "
+    "practice. No earlier judgment is given: decide for yourself from the evidence. Give the "
+    "verdict on the scale given and one sentence on why, saying what the passages show. Never "
+    "write M or S ids in the sentence. " + GOAL_NOT_MATERIAL + UNTRUSTED
+)
+BLIND_SCHEMA = {
+    "type": "object",
+    "required": ["verdict", "reason"],
+    "properties": {
+        "verdict": {"type": "string", "enum": list(VERDICTS)},
+        "reason": {"type": "string"},
+    },
+}
+STANCE_WORDS = {
+    "full": "does all of it",
+    "part": "does part of it",
+    "strong": "clearly does this",
+    "some": "does this only generally or in part",
+    "against": "works against this",
+}
+
+
+def blind_prompt(goal, q, parts: list[dict], graded: dict[str, str], research: list[dict]) -> str:
+    scale = VERDICT_SCALE if q.get("explicit") else JUDGMENT_SCALE
+    found = "\n".join(f"- {m}: {STANCE_WORDS.get(g, g)}" for m, g in graded.items())
+    return (
+        f"{goal_for(goal, q)}\n\nQuestion {q['id']}: {q['question']}\nScale: {scale}\n\n"
+        f"{material_block(parts)}\n\nWhat a separate check found each passage shows:\n{found}"
+        f"\n\n{research_block(research) if research else '(no research sections)'}"
+    )
+
+
+def blind_verdict(client, prompt: str) -> dict | None:
+    """The independent reading: {'verdict', 'reason'}, or None if the call fails."""
+    try:
+        out = converse(client, BLIND_SYSTEM, prompt, "record_reading", BLIND_SCHEMA, 400)
+    except Exception:
+        return None
+    if not isinstance(out, dict) or out.get("verdict") not in VERDICTS:
+        return None
+    reason = " ".join(ID_IN_TEXT.sub("", str(out.get("reason", ""))).split())[:400]
+    return {"verdict": out["verdict"], "reason": reason}
+
+
+def second_look(blind: dict) -> str:
+    """Feedback for re-deciding a verdict the independent reading disagreed with."""
+    return (
+        "An independent reading of the same evidence, made without seeing your verdict, "
+        f"concluded {blind['verdict']}: {blind['reason']} Weigh both readings against the "
+        "evidence and give the verdict the evidence supports. Follow all the rules."
+    )
+
+
 def set_confirmed(out, confirmed: list[str] | None, full: list[str] | None = None) -> dict:
     """Record on each verdict which of its cited parts were confirmed (VERIFIED), the whole
     confirmed list (CONFIRMED), and those graded full (FULL) for the last-resort salvage."""
@@ -1580,6 +1731,7 @@ def sanitize_summary(out, research) -> dict:
 TRAIL_MAX_EVIDENCE = 4
 TRAIL_MAX_GAPS = 2
 TRAIL_MAX_IMPROVEMENTS = 2
+TRAIL_MAX_ALSO = 2  # extra research sources per improvement (D101)
 PHRASE_MAX_WORDS = 45
 TRAIL_SYSTEM = (
     "You explain one whole-document verdict about a teacher's material as an evidence trail, "
@@ -1594,7 +1746,12 @@ TRAIL_SYSTEM = (
     "them speaks to the question. conclusion: 1 or 2 sentences saying what the research calls for "
     "and how the material compares (if there is no research, say the verdict rests on the "
     "checklist question). improvements: only if the verdict is partly or missing, up to 2, each "
-    "tied to ONE research section that recommends it: copy the recommending phrase word for word, "
+    "tied to the research section that most directly recommends it: copy the recommending "
+    "phrase word for word; then, in also, list up to "
+    + str(TRAIL_MAX_ALSO)
+    + " OTHER given research sections that also recommend the same change, each with its own "
+    "recommending phrase copied word for word (leave also empty if none does; never list a "
+    "section that does not recommend it), "
     "write one sentence applying it to this material, and where: the day or activity as the "
     "material names it (for example Day 2 · Read the story), never an M id. Never write M or S "
     "ids in any sentence. "
@@ -1642,6 +1799,18 @@ TRAIL_SCHEMA = {
                 "properties": {
                     "section": {"type": "string", "pattern": "^S[0-9]+$"},
                     "phrase": _PHRASE,
+                    "also": {
+                        "type": "array",
+                        "description": "other given research sections that also recommend it",
+                        "items": {
+                            "type": "object",
+                            "required": ["section", "phrase"],
+                            "properties": {
+                                "section": {"type": "string", "pattern": "^S[0-9]+$"},
+                                "phrase": _PHRASE,
+                            },
+                        },
+                    },
                     "apply": {"type": "string"},
                     "where": {"type": "string"},
                 },
@@ -1701,6 +1870,14 @@ def sanitize_trail(out, verdict: str, part_ids: set[str]) -> dict:
     ]
     out["gaps"] = [] if verdict == "met" else lst("gaps")[:TRAIL_MAX_GAPS]
     out["improvements"] = [] if verdict == "met" else lst("improvements")[:TRAIL_MAX_IMPROVEMENTS]
+    for x in out["improvements"]:
+        also = x.get("also") if isinstance(x.get("also"), list) else []
+        seen, keep = {str(x.get("section", ""))}, []
+        for a in also:
+            if isinstance(a, dict) and str(a.get("section", "")) not in seen:
+                seen.add(str(a.get("section", "")))
+                keep.append({"section": str(a.get("section", "")), "phrase": a.get("phrase", "")})
+        x["also"] = keep[:TRAIL_MAX_ALSO]
     if not isinstance(out.get("research"), dict):
         out["research"] = {"section": "", "phrase": ""}
     out["conclusion"] = " ".join(str(out.get("conclusion", "")).split())
@@ -1738,6 +1915,12 @@ def validate_trail(out, texts: dict[str, str], research: dict[str, str]) -> list
             probs.append(f"improvement {i} phrase is not word for word in {s}; copy it exactly")
         if not str(x.get("apply", "")).strip() or not str(x.get("where", "")).strip():
             probs.append(f"improvement {i} needs both apply and where")
+        for k, a in enumerate(x.get("also") or []):
+            t = a["section"]
+            if t not in research:
+                probs.append(f"improvement {i} also {k} must be one of the given research sections")
+            elif not find_phrase(research[t], str(a.get("phrase", ""))):
+                probs.append(f"improvement {i} also {k} phrase is not word for word in {t}")
     for name, text in _text_fields(out):
         for sid, rt in research.items():
             if copied_spans(text, rt):
@@ -1766,6 +1949,14 @@ def salvage_trail(
 
     keep = []
     for x in out["improvements"]:
+        good = [
+            a
+            for a in x.get("also") or []
+            if a["section"] in research and find_phrase(research[a["section"]], str(a["phrase"]))
+        ]
+        if len(good) < len(x.get("also") or []):
+            notes.append("dropped an extra research source that wasn't word for word")
+        x["also"] = good
         s = str(x.get("section", ""))
         ok = (
             s in research
@@ -1794,11 +1985,11 @@ def salvage_trail(
 
 RCHECK_SYSTEM = (
     "You check whether research passages support points made about a teacher's material. For "
-    "each item, read the passage and grade it: strong if the passage itself directly states or "
-    "recommends that practice; limited if it addresses the same practice, but only in passing; "
-    "no if it is about a different practice, even one related to reading instruction (for "
-    "example, a passage on phonics instruction does not support a point about extra help or "
-    "assessment). " + UNTRUSTED
+    "each item, read the passage and grade it against the point: strong if the passage itself "
+    "directly states or recommends what the point says; limited if it addresses the same "
+    "practice, but only in passing; no if it is about a different practice, even one related to "
+    "reading instruction (for example, a passage on phonics instruction does not support a point "
+    "about extra help or assessment), or if it does not back what the point claims. " + UNTRUSTED
 )
 RCHECK_SCHEMA = {
     "type": "object",
@@ -1819,14 +2010,78 @@ RCHECK_SCHEMA = {
 }
 
 
+SUPPORT_SYSTEM = (
+    "You find research that backs a suggested change to a teacher's material. From the research "
+    "sections given, list up to " + str(TRAIL_MAX_ALSO) + " that themselves recommend this "
+    "change or the practice it applies, each with the recommending phrase (4 to 30 words) copied "
+    "word for word from that section. Leave the list empty if none does; never list a section "
+    "that is only on the same topic. " + UNTRUSTED
+)
+SUPPORT_SCHEMA = {
+    "type": "object",
+    "required": ["sources"],
+    "properties": {
+        "sources": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["section", "phrase"],
+                "properties": {
+                    "section": {"type": "string", "pattern": "^S[0-9]+$"},
+                    "phrase": {"type": "string"},
+                },
+            },
+        }
+    },
+}
+
+
+def more_support(out: dict, research: dict[str, str], client) -> dict:
+    """D101: for each suggestion with room for more, look through the other research sections
+    for ones that also recommend it (one call each). Quotes are checked word for word here; the
+    grading in research_checks then drops any that don't back the change."""
+    for x in out.get("improvements") or []:
+        used = {x["section"]} | {a["section"] for a in x.get("also") or []}
+        room = TRAIL_MAX_ALSO - len(x.get("also") or [])
+        others = {k: t for k, t in research.items() if k not in used}
+        if room <= 0 or not others:
+            continue
+        text = f"Suggested change: {x.get('apply', '')}\n\n" + research_block(
+            [{"cite_id": k, "text": t} for k, t in others.items()]
+        )
+        try:
+            res = converse(client, SUPPORT_SYSTEM, text, "record_support", SUPPORT_SCHEMA, 600)
+        except Exception:
+            continue
+        for a in res.get("sources") or []:
+            if not isinstance(a, dict) or room <= 0:
+                continue
+            sec, phrase = str(a.get("section", "")), str(a.get("phrase", ""))
+            if sec in others and sec not in used and find_phrase(others[sec], phrase):
+                x.setdefault("also", []).append({"section": sec, "phrase": phrase})
+                used.add(sec)
+                room -= 1
+    return out
+
+
 def research_checks(out: dict, research: dict[str, str], client, question: str = "") -> dict:
     """Grade the research behind the conclusion (R) and each improvement (I0, I1); 'no' drops
     it. One small call; on failure nothing is dropped and grades stay unknown."""
     items = []
     sec = out["research"].get("section")
-    if sec:
-        items.append(("R", sec, f"what good practice looks like for this question: {question}"))
-    items += [(f"I{i}", x["section"], x["apply"]) for i, x in enumerate(out["improvements"])]
+    if sec:  # C (D100): graded against the conclusion it backs, not just the topic
+        concl = str(out.get("conclusion") or "").strip()
+        point = (
+            f"this conclusion about the material, for the question '{question}': {concl}"
+            if concl
+            else f"what good practice looks like for this question: {question}"
+        )
+        items.append(("R", sec, point))
+    for i, x in enumerate(out["improvements"]):
+        items.append((f"I{i}", x["section"], x["apply"]))
+        items += [
+            (f"I{i}a{k}", a["section"], x["apply"]) for k, a in enumerate(x.get("also") or [])
+        ]
     if not items:
         return out
     text = "\n\n".join(
@@ -1846,13 +2101,27 @@ def research_checks(out: dict, research: dict[str, str], client, question: str =
         g = grades.get("R")
         out["research"]["match"] = g
         if g == "no":  # off-topic: drop it, and the conclusion that leaned on it
-            out["research"] = {"section": "", "phrase": "", "dropped": "did not support the point"}
+            out["research"] = {
+                "section": "",
+                "phrase": "",
+                "dropped": "did not back the conclusion",
+            }
             out["conclusion"] = ""
     kept = []
     for i, x in enumerate(out["improvements"]):
+        also = [
+            {**a, "match": grades.get(f"I{i}a{k}")}
+            for k, a in enumerate(x.get("also") or [])
+            if grades.get(f"I{i}a{k}") != "no"  # an extra source must back the change too
+        ]
         g = grades.get(f"I{i}")
+        if g == "no" and also:  # main source off-topic: the best remaining one takes its place
+            also.sort(key=lambda a: a["match"] != "strong")
+            main = also.pop(0)
+            x = {**x, "section": main["section"], "phrase": main["phrase"]}
+            g = main["match"]
         if g != "no":
-            kept.append({**x, "match": g})
+            kept.append({**x, "match": g, "also": also})
     out["improvements"] = kept
     return out
 
@@ -1908,6 +2177,14 @@ def trail_view(out: dict, texts: dict[str, str], where_of: dict[str, str] | None
                 "apply": clean(x["apply"]),
                 "where": where(x["where"]),
                 "match": x.get("match"),
+                "also": [
+                    {
+                        "cite_id": y["section"],
+                        "span": span(y["section"], y["phrase"]),
+                        "match": y.get("match"),
+                    }
+                    for y in x.get("also") or []
+                ],
             }
             for x in out["improvements"]
         ],

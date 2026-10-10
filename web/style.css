@@ -384,3 +384,8 @@ header.top a.brand { text-decoration: none; }
   .howto.cols3 { grid-template-columns: 1fr; }
   .howto.cols3 > div { padding: 0; border-left: 0; }
 }
+
+/* ---------- how the verdict was reached (D99) ---------- */
+.process { display: flex; flex-direction: column; gap: 8px; }
+.alert.slim { padding: 8px 12px; }
+.sugg .stack { display: flex; flex-direction: column; gap: 8px; }

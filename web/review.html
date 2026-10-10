@@ -347,10 +347,39 @@ function researchBox(cite, span, match, labelText) {
 
 function arrow() { const a = el("div", "arrow"); a.append(icon("arrow")); return a; }
 
+// How the verdict was reached (D99): evidence first, then the verdict, then an independent
+// reading that never saw the verdict. The trail below explains the verdict; it came after it.
+function processNote(d) {
+  const so = d.second_opinion || {};
+  const box = el("div", "process");
+  box.append(el("span", "hint", "R.E.A.D. gathered and checked the evidence in your material first, then decided this verdict. The steps below explain why."));
+  if (so.status === "agreed") {
+    const a = el("div", "alert info slim");
+    const t = el("div");
+    t.append(el("strong", null, "Independent check agreed. "),
+      document.createTextNode(`A second reading of the same evidence, made without seeing the verdict, also concluded ${STATUS[so.verdict] || so.verdict}.`));
+    a.append(t); box.append(a);
+  } else if (so.status === "reconsidered") {
+    const a = el("div", "alert warn slim");
+    const t = el("div");
+    const changed = so.final && so.final !== so.first;
+    t.append(el("strong", null, "Independent check disagreed. "),
+      document.createTextNode(`A second reading of the same evidence, made without seeing the verdict, concluded ${STATUS[so.verdict] || so.verdict}: ${so.reason || ""} `),
+      document.createTextNode(changed
+        ? `The verdict was reconsidered with both readings and changed from ${STATUS[so.first] || so.first} to ${STATUS[so.final] || so.final}.`
+        : `The verdict was reconsidered with both readings and stayed ${STATUS[so.first] || so.first}. Treat this check as less certain.`));
+    a.append(t); box.append(a);
+  } else if (so.status === "not needed") {
+    box.append(el("span", "hint", "No evidence was found in the material for this check, so it is Not met by rule; there was nothing for an independent reading to weigh."));
+  }
+  return box;
+}
+
 function trailView(d, trail, where) {
   const body = el("div", "trail-body");
+  body.append(processNote(d));
   const grid = el("div", "trail");
-  for (const h of ["1. Your material", "", "2. What it shows", "", "3. What research says", "", "4. Conclusion"]) grid.append(el("div", "head", h));
+  for (const h of ["1. Evidence in your material", "", "2. What it shows", "", "3. What research says", "", "4. Why this verdict"]) grid.append(el("div", "head", h));
 
   const c1 = el("div", "stack c1");
   for (const e of trail.evidence) {
@@ -377,7 +406,12 @@ function trailView(d, trail, where) {
 
   const c3 = el("div", "stack center c3");
   if (trail.research) c3.append(researchBox(trail.research.cite_id, trail.research.span, trail.research.match));
-  else {
+  else if (trail.research_dropped) {
+    const n = el("div", "nores");
+    n.append(el("strong", null, "The research found didn't back this conclusion."),
+      el("span", "notice", "It was left out, so this verdict rests on the evidence in your material."));
+    c3.append(n);
+  } else {
     const n = el("div", "nores");
     n.append(el("strong", null, "No research in the library addresses this."),
       el("span", "notice", "The verdict rests on the checklist question alone."));
@@ -400,7 +434,11 @@ function trailView(d, trail, where) {
         const ap = el("div", "applied");
         ap.append(el("span", "kind", "Applied to your material · written by R.E.A.D."), el("span", null, x.apply),
           el("span", "hint", "Where: " + x.where));
-        row.append(researchBox(x.cite_id, x.span, x.match), arrow(), ap);
+        const srcs = el("div", "stack");
+        srcs.append(researchBox(x.cite_id, x.span, x.match));
+        for (const y of x.also || []) srcs.append(researchBox(y.cite_id, y.span, y.match, "Also supported by · full section"));
+        if ((x.also || []).length) ap.append(el("span", "hint", `Backed by ${1 + x.also.length} research passages.`));
+        row.append(srcs, arrow(), ap);
         imp.append(row);
       }
       body.append(imp);
@@ -477,6 +515,7 @@ function atAGlance(r) {
       history.replaceState(null, "", a.href);
     });
     row.append(a, statusEl(d.verdict || d.status));
+    if ((d.second_opinion || {}).status === "reconsidered") row.append(el("span", "tag warn", "Reconsidered"));
     c1.append(row);
   }
 

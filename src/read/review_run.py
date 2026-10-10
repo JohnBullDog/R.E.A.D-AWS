@@ -276,34 +276,57 @@ def run(
                 {m for a in info["answers"] for m in a["material"]}, key=lambda m: int(m[1:])
             )
     if qb:
-        # presence questions: find passages in each chunk, then confirm them one by one (D81)
+        # evidence before verdicts: presence questions find passages and confirm each one (D81);
+        # judgment questions gather passages for and against and grade each one (D98)
         def confirm(q):
             try:
+                if q["explicit"]:
+                    found = [
+                        m
+                        for c in chunks
+                        for m in R.find_evidence(
+                            deps["client"], q["question"], [parts_by_id[i] for i in c["parts"]]
+                        )
+                    ]
+                    return q["id"], R.verify_parts(
+                        deps["client"], q["question"], parts_by_id, found
+                    )
+                context = R.goal_for(goal, q)
                 found = [
                     m
                     for c in chunks
-                    for m in R.find_evidence(
-                        deps["client"], q["question"], [parts_by_id[i] for i in c["parts"]]
+                    for m in R.gather_evidence(
+                        deps["client"], context, q["question"], [parts_by_id[i] for i in c["parts"]]
                     )
                 ]
-                return q["id"], R.verify_parts(deps["client"], q["question"], parts_by_id, found)
+                return q["id"], R.grade_stance(
+                    deps["client"], context, q["question"], parts_by_id, found
+                )
             except Exception:  # unknown: fall back to the verdict call's own judgment
                 return q["id"], None
 
-        explicit_qs = [q for q in qb if q["explicit"]]
-        if explicit_qs:
-            progress(phase="Finding evidence", done=0, total=len(explicit_qs))
-            with ThreadPoolExecutor(WORKERS) as pool:
-                for qid, graded in pool.map(confirm, explicit_qs):
-                    per_question[qid]["confirmed"] = None if graded is None else list(graded)
-                    per_question[qid]["full"] = [
-                        m for m, g in (graded or {}).items() if g == "full"
-                    ]
+        progress(phase="Finding evidence", done=0, total=len(qb))
+        with ThreadPoolExecutor(WORKERS) as pool:
+            for qid, graded in pool.map(confirm, qb):
+                info = per_question[qid]
+                info["graded"] = graded
+                if graded is None:
+                    continue
+                if info["explicit"]:
+                    info["confirmed"] = list(graded)
+                    info["full"] = [m for m, g in graded.items() if g == "full"]
+                else:  # strong/some count as confirmed; met needs a strong one, no 'against'
+                    info["confirmed"] = [m for m, g in graded.items() if g in ("strong", "some")]
+                    info["strong"] = [m for m, g in graded.items() if g == "strong"]
+                    info["against"] = [m for m, g in graded.items() if g == "against"]
+                    info["full"] = [] if info["against"] else list(info["strong"])
         qb = [
             {
                 **q,
                 "confirmed": per_question[q["id"]].get("confirmed"),
                 "full": per_question[q["id"]].get("full"),
+                "against": per_question[q["id"]].get("against"),
+                "strong": per_question[q["id"]].get("strong"),
             }
             for q in qb
         ]
@@ -338,20 +361,57 @@ def run(
                 )
                 return R.set_confirmed(out, confirmed, per_question[q["id"]].get("full"))
 
-            try:
-                return R.with_retry(
-                    ask,
-                    lambda o: R.validate_combine(
-                        o, {q["id"]}, per_question, mats, mat_texts | res_map, res_map, q_text
-                    ),
-                    lambda o: R.salvage_verdicts(o, all_parts, res_map),
+            def check(o):
+                return R.validate_combine(
+                    o, {q["id"]}, per_question, mats, mat_texts | res_map, res_map, q_text
                 )
+
+            def salvage(o):
+                return R.salvage_verdicts(o, all_parts, res_map)
+
+            try:
+                res = R.with_retry(ask, check, salvage)
             except Exception as exc:
                 return {
                     "ok": False,
                     "problems": [f"{type(exc).__name__}: {exc}"[:300]],
                     "attempts": [],
                 }
+            if not res["ok"]:
+                return res
+            first = next(iter(res["result"].get("verdicts") or []), {}).get("verdict")
+            graded = per_question[q["id"]].get("graded")
+            if not graded:  # nothing to read: the rule already made it missing, or no evidence step
+                res["second_opinion"] = {
+                    "status": "not needed" if graded == {} else "unavailable",
+                    "first": first,
+                    "final": first,
+                }
+                return res
+            blind = R.blind_verdict(
+                deps["client"],
+                R.blind_prompt(goal, q, [parts_by_id[m] for m in graded], graded, items),
+            )
+            if blind is None:
+                res["second_opinion"] = {"status": "unavailable", "first": first, "final": first}
+                return res
+            opinion = {**blind, "first": first, "final": first, "status": "agreed"}
+            if blind["verdict"] != first:
+                look = R.second_look(blind)
+                try:
+                    again = R.with_retry(
+                        lambda fb: ask(f"{look}\n\n{fb}" if fb else look), check, salvage
+                    )
+                except Exception:
+                    again = {"ok": False, "attempts": []}
+                res["attempts"] += again.get("attempts", [])
+                if again["ok"]:
+                    res = {**again, "attempts": res["attempts"]}
+                    final = next(iter(again["result"].get("verdicts") or []), {}).get("verdict")
+                    opinion["final"] = final
+                opinion["status"] = "reconsidered"
+            res["second_opinion"] = opinion
+            return res
 
         with ThreadPoolExecutor(WORKERS) as pool:
             combined = list(pool.map(verdict_one, qb))
@@ -408,7 +468,12 @@ def run(
                 view = None
                 if res["ok"]:
                     view = R.trail_view(
-                        R.research_checks(res["result"], res_map, deps["client"], q["question"]),
+                        R.research_checks(
+                            R.more_support(res["result"], res_map, deps["client"]),
+                            res_map,
+                            deps["client"],
+                            q["question"],
+                        ),
                         texts_all,
                         where_of,
                     )
@@ -435,6 +500,8 @@ def run(
                 "answers": per_question[q["id"]]["answers"],
                 "status": per_question[q["id"]]["status"],
                 "fixes": combined[qb.index(q)].get("salvaged", []),
+                "second_opinion": combined[qb.index(q)].get("second_opinion"),
+                "evidence_graded": per_question[q["id"]].get("graded"),
             }
             if v:
                 did = f"D{len(verdicts) + 1}"

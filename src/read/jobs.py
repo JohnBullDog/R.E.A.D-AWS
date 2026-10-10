@@ -31,6 +31,9 @@ WEB = _bundled("web")
 DEFAULT_CHECKLIST = _bundled("rubric", "checklist.json")
 CHECKLIST_KEY = "checklist.json"
 STATE_EVERY = 2.0  # seconds between review progress writes
+REVIEW_RESEARCH = (
+    6  # research sections per checklist question (was 4; more to back suggestions, D101)
+)
 
 
 def load_env_file(path: Path) -> None:
@@ -145,7 +148,9 @@ def review_deps(env: Env) -> dict:
 
     def search(query: str, goal: dict) -> list[dict]:
         band = parse_band(goal["grade_band"]) or (None, None)
-        opts = service.SearchOptions(grade_min=band[0], grade_max=band[1], max_results=4)
+        opts = service.SearchOptions(
+            grade_min=band[0], grade_max=band[1], max_results=REVIEW_RESEARCH
+        )
         return service.search(query, st(), options=opts)["excerpts"]
 
     class Client:  # one bedrock-runtime client per thread
