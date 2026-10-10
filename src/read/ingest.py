@@ -14,6 +14,8 @@ REQUIRED_META = ("work_id", "title", "publisher", "url", "pub_date", "doc_type")
 LICENSE_FIELDS = ("license", "license_verified_by", "license_verified_on")
 WORK_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,80}$")
 PUB_DATE = re.compile(r"^\d{4}(-\d{2})?$")
+URL = re.compile(r"^https?://[^\s<>\"']+$", re.I)  # no javascript:/data: links (stored XSS)
+META_TEXT_MAX = 1000  # any single text field in meta.json
 
 
 def check_meta(meta: dict) -> list[str]:
@@ -25,6 +27,13 @@ def check_meta(meta: dict) -> list[str]:
         problems.append("pub_date must be YYYY or YYYY-MM")
     if meta.get("doc_type") and meta["doc_type"] not in AUTHORITY:
         problems.append(f"doc_type must be one of {sorted(AUTHORITY)}")
+    if meta.get("url") and not (len(str(meta["url"])) <= 2000 and URL.match(str(meta["url"]))):
+        problems.append("url must be an http:// or https:// address")
+    if meta.get("superseded_by") and not WORK_ID.match(str(meta["superseded_by"])):
+        problems.append("superseded_by must be a source ID")
+    long = [k for k, v in meta.items() if isinstance(v, str) and len(v) > META_TEXT_MAX]
+    if long:
+        problems.append(f"too long (over {META_TEXT_MAX} characters): {', '.join(sorted(long))}")
     if meta.get("expires_on"):
         try:
             date.fromisoformat(meta["expires_on"])

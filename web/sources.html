@@ -175,7 +175,7 @@ function select(workId, keepPage) {
     el("div", null, `ID ${current.work_id} · file ${current.source_key} · version ${current.version}`),
     el("div", null, current.activated_at ? `Activated ${current.activated_at}` : "Never activated"),
   );
-  if (current.url) {
+  if (current.url && /^https?:\/\//i.test(current.url)) {  // never a javascript: or data: link
     const a = el("a", null, current.url);
     a.href = current.url; a.target = "_blank"; a.rel = "noopener";
     meta.append(a);

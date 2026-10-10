@@ -112,14 +112,33 @@ def load_checklist(path: str | os.PathLike) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+CHECKLIST_MAX_QUESTIONS = 40
+CHECKLIST_FIELD_MAX = {
+    "criterion_id": 60,
+    "component": 80,
+    "grade_band": 10,
+    "question": 500,
+    "search_query": 300,
+    "note": 1000,
+}
+
+
 def check_checklist(data: dict) -> list[str]:
     """Problems with an edited checklist; empty means it can be saved."""
     probs, seen = [], set()
     crit = data.get("criteria")
     if not isinstance(crit, list) or not crit:
         return ["criteria must be a non-empty list"]
+    if len(crit) > CHECKLIST_MAX_QUESTIONS:
+        return [f"at most {CHECKLIST_MAX_QUESTIONS} questions"]
     for i, c in enumerate(crit):
         n = i + 1
+        if not isinstance(c, dict):
+            probs.append(f"criterion {n}: must be an object")
+            continue
+        for f, most in CHECKLIST_FIELD_MAX.items():
+            if isinstance(c.get(f), str) and len(c[f]) > most:
+                probs.append(f"criterion {n}: {f} is over {most} characters")
         for f in ("criterion_id", "component", "grade_band", "question", "search_query"):
             if not isinstance(c.get(f), str) or not c[f].strip():
                 probs.append(f"criterion {n}: {f} is required")

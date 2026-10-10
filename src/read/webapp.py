@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from read import pipeline, review, service
 from read.chunk import sha
 from read.extract import Unsupported, extract
-from read.ingest import LICENSE_FIELDS, check_meta
+from read.ingest import LICENSE_FIELDS, WORK_ID, check_meta
 from read.jobs import CHECKLIST_KEY, WEB, Env
 
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
@@ -34,6 +34,27 @@ PAGES = {
     "/auth.js": "auth.js",
 }
 GONE = "review not found (material is deleted after 24 hours)"
+# Defense in depth for pages that render corpus and model text (rule 9 is the main control):
+# scripts and requests only to this site, fonts from Google Fonts, no framing.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": "; ".join(
+        [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+            "font-src https://fonts.gstatic.com",
+            "img-src 'self' data:",
+            "connect-src 'self'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+            "object-src 'none'",
+        ]
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "DENY",
+}
 
 
 class SearchIn(BaseModel):
@@ -79,6 +100,13 @@ class GoalIn(BaseModel):
 def create_app(env: Env) -> FastAPI:
     app = FastAPI(title="R.E.A.D.", docs_url=None, redoc_url=None, openapi_url=None)
     cache: dict = {}
+
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        response = await call_next(request)
+        for k, v in SECURITY_HEADERS.items():
+            response.headers.setdefault(k, v)
+        return response
 
     def st() -> service.Stores:  # created on first use, reused while the Lambda stays warm
         if "st" not in cache:
@@ -164,6 +192,7 @@ def create_app(env: Env) -> FastAPI:
 
     @app.get("/api/sources/{work_id}/sections")
     def api_sections(work_id: str, offset: int = 0, limit: int = 50):
+        offset, limit = max(offset, 0), min(max(limit, 1), 200)
         row = get_row(work_id)
         ver = row.get("source_version_id")
         items, kwargs = (
@@ -238,6 +267,8 @@ def create_app(env: Env) -> FastAPI:
         name, lic = body.name.strip(), body.license.strip()
         if len(name) < 3 or not lic:
             raise HTTPException(400, "type your full name and the license")
+        if len(name) > 100 or len(lic) > 300:
+            raise HTTPException(400, "name or license is too long")
         row = get_row(work_id)
         meta = read_meta(row) or dict(row)
         meta.update(
@@ -263,6 +294,8 @@ def create_app(env: Env) -> FastAPI:
         changes = body.model_dump()
         if changes["superseded_by"] and changes["superseded_by"] == work_id:
             raise HTTPException(400, "a source can't supersede itself")
+        if changes["superseded_by"] and not WORK_ID.match(changes["superseded_by"]):
+            raise HTTPException(400, "superseded_by must be a source ID")
         try:
             pipeline.update_tags(work_id, changes, st())
         except pipeline.IngestError as e:
@@ -320,6 +353,8 @@ def create_app(env: Env) -> FastAPI:
             raise HTTPException(
                 400, "Use sample (synthetic) material only: no real student or teacher data."
             )
+        if len(goal_note) > 1000:
+            raise HTTPException(400, "The goal note is over 1,000 characters.")
         env.temp.purge()
         headings: set[str] = set()
         levels: dict[str, int] = {}

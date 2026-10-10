@@ -454,8 +454,16 @@ function atAGlance(r) {
   for (const d of rows) {
     const row = el("div", "checkrow");
     const a = el("a", null, DOC_SHORT[d.question_id] || d.question);
-    a.href = "#chk-" + d.question_id;
-    a.addEventListener("click", () => { const t = $("chk-" + d.question_id); if (t) t.open = true; });
+    // full page address: a bare "#chk-..." would resolve against <base href> (the Ask page)
+    a.href = location.pathname + location.search + "#chk-" + d.question_id;
+    a.addEventListener("click", (ev) => {
+      const t = $("chk-" + d.question_id);
+      if (!t) return;
+      ev.preventDefault();
+      t.open = true;
+      t.scrollIntoView({behavior: "smooth", block: "start"});
+      history.replaceState(null, "", a.href);
+    });
     row.append(a, statusEl(d.verdict || d.status));
     c1.append(row);
   }
