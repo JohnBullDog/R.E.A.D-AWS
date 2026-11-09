@@ -157,6 +157,10 @@ Resources:
         ReviewMaterialPage:
           Type: HttpApi
           Properties: {ApiId: !Ref Api, Path: /review_material, Method: GET, Auth: {Authorizer: NONE}}
+        PracticeScenariosPage:
+          Type: HttpApi
+          Properties:
+            {ApiId: !Ref Api, Path: /practice_scenarios, Method: GET, Auth: {Authorizer: NONE}}
         ReviewPage: # old address: redirects to /review_material
           Type: HttpApi
           Properties: {ApiId: !Ref Api, Path: /review, Method: GET, Auth: {Authorizer: NONE}}
