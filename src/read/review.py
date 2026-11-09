@@ -3,7 +3,8 @@
 Steps (design doc section "Proposed: section-based material review (v2)"):
 1. split the material into numbered parts (M1, M2, ...) by exact offsets and group them into
    sections from its structure (headings, slides), capped in size; no structure -> sliding
-   windows with a small overlap; short material -> one section;
+   windows with a small overlap; at most MAX_SECTIONS of them; material with nothing to split
+   (tiny, or plain text inside one window) -> one section;
 2. infer the goal AND which whole-document (List B) questions are relevant; core ones always
    run; the teacher confirms both;
 3. embedding triage picks the section (List A) questions relevant to each section (off by
@@ -32,7 +33,8 @@ from read.quote import copied_spans, quote_parts
 from read.retrieve import parse_band
 
 MAX_MATERIAL_WORDS = 50000
-SINGLE_PASS_WORDS = 1500  # material up to this size is one section
+ONE_SECTION_WORDS = 150  # only material this small is a single section (D103)
+MAX_SECTIONS = 10  # more areas than this pack together: the call count stays bounded
 SECTION_MAX_WORDS = 800
 MIN_SECTION_WORDS = 60  # smaller heading groups merge into the next one
 WINDOW_WORDS = 600  # sliding window when the material has no structure
@@ -280,19 +282,42 @@ def _span_words(parts: list[dict], block: list) -> int:
     return sum(_words(p) for p in parts[block[1] : block[2]])
 
 
+def _pack_sections(
+    groups: list[tuple[str, list[dict], list[dict]]],
+) -> list[tuple[str, list[dict], list[dict]]]:
+    """Keep at most MAX_SECTIONS sections by joining the smallest pair of neighbours, over and
+    over: a deck of thirty short slides stays a handful of review calls, and the sections that
+    come out are close in size. Document order is kept."""
+    out = [(t, list(ps), list(owned)) for t, ps, owned in groups]
+    while len(out) > MAX_SECTIONS:
+        k = min(
+            range(len(out) - 1),
+            key=lambda i: sum(_words(p) for p in out[i][1] + out[i + 1][1]),
+        )
+        (ta, pa, oa), (tb, pb, ob) = out[k], out[k + 1]
+        ids = {p["id"] for p in pa}
+        out[k : k + 2] = [
+            (f"{ta} / {tb}"[:80], pa + [p for p in pb if p["id"] not in ids], oa + ob)
+        ]
+    return out
+
+
 def make_sections(
     parts: list[dict], headings: set[str] | None = None, levels: dict[str, int] | None = None
 ) -> list[dict]:
     """Group parts into sections: heading levels first when the source has them (DOCX), else
-    structure (capped), sliding windows if none, one section for short material. Each section:
-    id, title, parts (ids), owned (ids it reports on)."""
+    structure (capped), sliding windows if none. Each section: id, title, parts (ids), owned
+    (ids it reports on). Material becomes one section only when there is nothing to split
+    (D103): structured material keeps its areas however short it is, so the page's coverage
+    grid has real columns. At most MAX_SECTIONS sections."""
     headings = headings or set()
-    if sum(_words(p) for p in parts) <= SINGLE_PASS_WORDS:
-        ids = [p["id"] for p in parts]
-        return [{"id": "sec1", "title": "Whole material", "parts": ids, "owned": ids}]
+    total = sum(_words(p) for p in parts)
     heads = [i for i, p in enumerate(parts) if looks_like_heading(p["text"], headings)]
     groups: list[tuple[str, list[dict], list[dict]]] = []  # (title, parts, owned parts)
     levels = {t: n for t, n in (levels or {}).items() if any(p["text"].strip() == t for p in parts)}
+    if total <= ONE_SECTION_WORDS or (not heads and not levels and total <= WINDOW_WORDS):
+        ids = [p["id"] for p in parts]
+        return [{"id": "sec1", "title": "Whole material", "parts": ids, "owned": ids}]
     if levels:
         groups = [(t, ps, ps) for t, ps in _level_groups(parts, levels)]
     elif heads:
@@ -326,6 +351,7 @@ def make_sections(
                 k -= 1
             groups.append((f"Part {len(groups) + 1}", overlap + window, window))
             i = j
+    groups = _pack_sections(groups)
     return [
         {
             "id": f"sec{n}",

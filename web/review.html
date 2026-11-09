@@ -526,9 +526,9 @@ function atAGlance(r) {
   const qids = [...new Set(secs.flatMap((s) => s.findings.map((f) => f.question_id)))]
     .sort((a, b) => (order.indexOf(a) + 99 * (order.indexOf(a) < 0)) - (order.indexOf(b) + 99 * (order.indexOf(b) < 0)));
   const grid = el("div", "cover");
-  grid.style.gridTemplateColumns = `110px repeat(${secs.length}, minmax(0, 1fr))`;
+  grid.style.gridTemplateColumns = `${secs.length > 6 ? 92 : 110}px repeat(${secs.length}, minmax(0, 1fr))`;
   grid.append(el("span"));
-  secs.forEach((s, i) => { const h = el("span", "colhead", String(i + 1)); h.title = s.title; grid.append(h); });
+  secs.forEach((s, i) => { const h = el("span", "colhead", secs.length > 1 ? String(i + 1) : "All"); h.title = s.title; grid.append(h); });
   for (const qid of qids) {
     const f0 = secs.flatMap((s) => s.findings).find((f) => f.question_id === qid);
     grid.append(el("span", null, SEC_SHORT[qid] || f0.component));
@@ -540,7 +540,9 @@ function atAGlance(r) {
       grid.append(cell);
     }
   }
-  c2.append(grid, el("span", "hint", "Filled: clearly · half: in part · " + secs.map((s, i) => `${i + 1} ${s.title}`).join(" · ")));
+  c2.append(grid, el("span", "hint", "Filled: clearly · half: in part" + (secs.length > 1
+    ? " · " + secs.map((s, i) => `${i + 1} ${s.title.length > 34 ? s.title.slice(0, 33) + "…" : s.title}`).join(" · ")
+    : " · This material has no separate areas to compare: it was read as one piece.")));
 
   const c3 = el("div");
   c3.append(el("h3", null, "Improve next"));

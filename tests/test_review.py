@@ -125,6 +125,32 @@ def test_short_material_is_one_section():
     ]
 
 
+def test_short_structured_material_keeps_its_areas():
+    """D103: a 500-word slide deck used to collapse into one section, which left the page's
+    coverage grid with a single column."""
+    text = "\n\n".join(x for k in range(1, 11) for x in (f"Slide {k}: vowel teams", para(50)))
+    parts = R.material_parts(text)
+    secs = R.make_sections(parts, {f"Slide {k}: vowel teams" for k in range(1, 11)})
+    assert len(secs) > 1
+    assert [s["title"] for s in secs] != ["Whole material"]
+    assert [m for s in secs for m in s["owned"]] == [p["id"] for p in parts]
+
+
+def test_tiny_material_is_still_one_section():
+    text = "Warm-up\n\n" + para(40) + "\n\nPractice\n\n" + para(40)
+    secs = R.make_sections(R.material_parts(text), {"Warm-up", "Practice"})
+    assert [s["title"] for s in secs] == ["Whole material"]
+
+
+def test_section_count_is_capped():
+    text = "\n\n".join(x for k in range(1, 41) for x in (f"Step {k}", para(60)))
+    parts = R.material_parts(text)
+    secs = R.make_sections(parts, {f"Step {k}" for k in range(1, 41)})
+    assert 1 < len(secs) <= R.MAX_SECTIONS
+    assert [m for s in secs for m in s["owned"]] == [p["id"] for p in parts]
+    assert [m for s in secs for m in s["parts"]] == [p["id"] for p in parts]
+
+
 def test_headed_material_splits_at_headings_caps_and_merges_tiny_groups():
     text = "\n\n".join(
         [
