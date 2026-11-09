@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from handlers.authorizer import check
-from read import jobs, review, review_run
+from read import jobs, review, review_run, scenario_run
 from read.jobs import Env
 from read.store import TempStore
 from read.webapp import create_app
@@ -115,3 +115,89 @@ def test_passcode_check():
     assert check("open sesame", "open sesame")
     assert not check("wrong", "open sesame")
     assert not check(None, "open sesame") and not check("", "")
+
+
+# ---------------- practice scenarios (D104-D107) ----------------
+
+
+def fake_generate(objective, examples, deps, avoid=None):
+    assert avoid == []  # the page sends what it has already shown
+    return {
+        "ok": True,
+        "objective": objective,
+        "scenario": {
+            "title": "A moment",
+            "situation": "Something happens in a classroom.",
+            "decision_point": "What next?",
+            "reflection_prompts": ["a", "b"],
+            "grounded_in": ["S1"],
+        },
+        "research": {
+            "S1": {
+                "cite_id": "S1",
+                "text": "Model the word first.",
+                "label": "IES, 2016, p. 14",
+                "ref": {"section_id": "w1:v1:s0001"},
+            }
+        },
+        "examples_used": ["ex-blending-k1"],
+        "stats": {"model_calls": 1, "seconds": 1.0},
+    }
+
+
+def test_scenario_page_and_objective_bank_are_served(env):
+    c = TestClient(create_app(env))
+    page = c.get("/practice_scenarios")
+    assert page.status_code == 200 and "Practice a classroom decision" in page.text
+    bank = c.get("/api/objectives").json()
+    assert bank["status"] == "DEVELOPMENT PLACEHOLDER" and bank["objectives"]
+    assert c.get("/api/scenario_examples").json()["examples"]
+
+
+def test_edited_objective_bank_is_validated_before_it_is_saved(env):
+    c = TestClient(create_app(env))
+    bad = c.put("/api/objectives", json={"objectives": [{"objective_id": "x"}]})
+    assert bad.status_code == 400 and "missing" in bad.text
+    good = {
+        "objectives": [
+            {
+                "objective_id": "x",
+                "component": "Fluency",
+                "grade_band": "2-3",
+                "objective": "Students reread a passage",
+                "search_query": "repeated reading",
+            }
+        ]
+    }
+    assert c.put("/api/objectives", json=good).json() == {"ok": True}
+    saved = c.get("/api/objectives").json()
+    assert saved["objectives"][0]["objective_id"] == "x"
+    assert saved["status"] == "DEVELOPMENT PLACEHOLDER"  # the placeholder warning is kept
+
+
+def test_a_response_runs_as_a_worker_job_and_the_page_polls_it(env, monkeypatch):
+    monkeypatch.setattr(scenario_run, "generate", fake_generate)
+    c = TestClient(create_app(env))
+    made = c.post("/api/scenario", json={"objective_id": "blend-cvc-k1"})
+    assert made.status_code == 200, made.text
+    sid = made.json()["scenario_id"]
+    assert made.json()["research"]["S1"]["label"] == "IES, 2016, p. 14"
+
+    short = c.post(f"/api/scenario/{sid}/respond", json={"synthetic": True, "response": "no"})
+    assert short.status_code == 400 and "at least" in short.text
+    unconfirmed = c.post(
+        f"/api/scenario/{sid}/respond", json={"synthetic": False, "response": "word " * 40}
+    )
+    assert unconfirmed.status_code == 400 and "no real student" in unconfirmed.text
+
+    ok = c.post(f"/api/scenario/{sid}/respond", json={"synthetic": True, "response": "word " * 40})
+    assert ok.json() == {"ok": True}
+    assert env.started[-1] == {"kind": "scenario", "sid": sid}
+    state = c.get(f"/api/scenario/{sid}").json()
+    assert state["state"] == "running" and state["scenario"]["title"] == "A moment"
+
+
+def test_an_unknown_scenario_is_gone_not_a_crash(env):
+    c = TestClient(create_app(env))
+    assert c.get("/api/scenario/nope").status_code == 404
+    assert c.post("/api/scenario", json={"objective_id": "not-real"}).status_code == 404

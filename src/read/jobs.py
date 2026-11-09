@@ -30,6 +30,11 @@ def _bundled(*names: str) -> Path:
 WEB = _bundled("web")
 DEFAULT_CHECKLIST = _bundled("rubric", "checklist.json")
 CHECKLIST_KEY = "checklist.json"
+DEFAULT_OBJECTIVES = _bundled("rubric", "objectives.json")
+OBJECTIVES_KEY = "objectives.json"
+DEFAULT_EXAMPLES = _bundled("rubric", "scenario_examples.json")
+EXAMPLES_KEY = "scenario_examples.json"
+SCENARIO_RESEARCH = 6  # research sections per scenario search (D104)
 STATE_EVERY = 2.0  # seconds between review progress writes
 REVIEW_RESEARCH = (
     6  # research sections per checklist question (was 4; more to back suggestions, D101)
@@ -96,8 +101,19 @@ class Env:
         return e
 
     def checklist(self) -> dict:
-        saved = self.app_files.get_json(CHECKLIST_KEY)
-        return saved if saved else json.loads(DEFAULT_CHECKLIST.read_text(encoding="utf-8"))
+        return self._sme_file(CHECKLIST_KEY, DEFAULT_CHECKLIST)
+
+    def objectives(self) -> dict:
+        """The SME's learning objectives for practice scenarios (rubric/objectives.json)."""
+        return self._sme_file(OBJECTIVES_KEY, DEFAULT_OBJECTIVES)
+
+    def scenario_examples(self) -> dict:
+        """The SME's worked example scenarios, which shape what generation writes."""
+        return self._sme_file(EXAMPLES_KEY, DEFAULT_EXAMPLES)
+
+    def _sme_file(self, key: str, bundled: Path) -> dict:
+        saved = self.app_files.get_json(key)
+        return saved if saved else json.loads(bundled.read_text(encoding="utf-8"))
 
 
 def handle(env: Env, payload: dict) -> None:
@@ -105,6 +121,8 @@ def handle(env: Env, payload: dict) -> None:
     kind = payload.get("kind")
     if kind == "ingest":
         run_ingest(env, payload["job_id"], payload["filename"])
+    elif kind == "scenario":
+        run_scenario(env, payload["sid"])
     elif kind == "review":
         run_review(env, payload["rid"], set(payload.get("chosen_b") or []))
     else:
@@ -185,3 +203,61 @@ def run_review(env: Env, rid: str, chosen_b: set[str]) -> None:
     except Exception as e:  # report the failure to the page
         state = {"state": "failed", "error": f"{type(e).__name__}: {e}"[:300]}
     env.temp.put_json(rid, "state.json", state)
+
+
+def scenario_deps(env: Env) -> dict:
+    """Search and Nova for the practice scenarios (one client per thread, as for reviews)."""
+    from read import service
+    from read.retrieve import parse_band
+
+    local = threading.local()
+
+    def st():
+        if not hasattr(local, "st"):
+            local.st = env.stores()
+        return local.st
+
+    def search(query: str, grade_band: str) -> list[dict]:
+        band = parse_band(grade_band) or (None, None)
+        opts = service.SearchOptions(
+            grade_min=band[0], grade_max=band[1], max_results=SCENARIO_RESEARCH
+        )
+        return service.search(query, st(), options=opts)["excerpts"]
+
+    class Client:
+        def converse(self, **kw):
+            return st().bedrock.converse(**kw)
+
+    return {"search": search, "client": Client()}
+
+
+def run_scenario(env: Env, sid: str) -> None:
+    """Evaluate a teacher's response in the worker (D107); the page polls state.json."""
+    from read import scenario_run
+
+    state = {"state": "running", "phase": "Starting", "done": 0, "total": 3}
+    last = [0.0]
+    lock = threading.Lock()
+
+    def progress(**kw):
+        with lock:
+            state.update(kw)
+            if time.monotonic() - last[0] >= STATE_EVERY:
+                last[0] = time.monotonic()
+                env.temp.put_json(sid, "state.json", state)
+
+    try:
+        record = env.temp.get_json(sid, "scenario.json")
+        attempt = env.temp.get_json(sid, "attempt.json")
+        result = scenario_run.evaluate(
+            record,
+            attempt["response"],
+            scenario_deps(env),
+            attempt.get("prior") or [],
+            progress,
+        )
+        env.temp.put_json(sid, "feedback.json", result)
+        state = {"state": "done"}
+    except Exception as e:  # report the failure to the page
+        state = {"state": "failed", "error": f"{type(e).__name__}: {e}"[:300]}
+    env.temp.put_json(sid, "state.json", state)

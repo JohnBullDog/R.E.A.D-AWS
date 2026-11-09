@@ -3,7 +3,8 @@
     python scripts/build_lambda.py
     sam build
 
-Copies the read package, the handlers, the web pages, and the default checklist; sam build
+Copies the read package, the handlers, the web pages, and the default rubric files
+(checklist, practice objectives, worked example scenarios); sam build
 then installs requirements-lambda.txt (staged as requirements.txt) for the Lambda platform.
 """
 
@@ -23,7 +24,8 @@ def main() -> None:
     shutil.copytree(ROOT / "src" / "handlers", OUT / "handlers", ignore=IGNORE)
     shutil.copytree(ROOT / "web", OUT / "web", ignore=IGNORE)
     (OUT / "rubric").mkdir()
-    shutil.copy2(ROOT / "rubric" / "checklist.json", OUT / "rubric" / "checklist.json")
+    for name in ("checklist.json", "objectives.json", "scenario_examples.json"):
+        shutil.copy2(ROOT / "rubric" / name, OUT / "rubric" / name)
     shutil.copy2(ROOT / "requirements-lambda.txt", OUT / "requirements.txt")
     files = sum(1 for p in OUT.rglob("*") if p.is_file())
     print(f"staged {files} files in {OUT.relative_to(ROOT)}")

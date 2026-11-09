@@ -61,3 +61,31 @@ Add it as `docs/proposal.pdf` (or .docx) so requirements can be checked against 
   John through creating it then.
 - Real sources: placeholders are in `corpus/` for now (D39); the real list comes from Addison.
 - AWS OpenSearch Serverless test: John sets it up, then says go.
+
+### Q13. Practice scenarios, after the first build (2026-11-08)
+
+Built and verified live (D104-D108); these are the calls John has not made yet.
+
+- **Regenerating.** "Different scenario" is free to press and each press is a search plus a
+  model call. Cap it per objective, or leave it?
+- **Reporting a bad scenario.** With no SME gate (D104), nothing tells Addison when generation
+  writes something wrong. Worth a "this scenario is off" control that saves the scenario for
+  her to read?
+- **A custom objective with no grade band.** It currently falls back to K-5, which widens
+  retrieval. Infer the band from the objective's wording instead, the way `/review` infers a
+  goal?
+- **Rule 7 and free writing.** A teacher practising could type a real child's name into their
+  response. Today there is the same synthetic-only checkbox as `/review`, plus 24-hour
+  deletion. Enough, or should the response be screened before it is stored?
+
+### Q14. Scenario quality, for Addison (2026-11-08)
+
+Observations from the live runs, for the SME rather than for engineering:
+
+- Generated scenarios lean hard on the worked examples: with an example in the same component
+  and grade band, the model reproduces its situation closely. More examples per component
+  would spread this out.
+- Research points often come from one page of one source (WWC p. 17 in the comprehension run),
+  so feedback can feel repetitive.
+- Suggestions still read as paraphrased research rather than advice to this teacher about this
+  moment.

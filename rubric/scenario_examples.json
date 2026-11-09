@@ -1,0 +1,46 @@
+{
+  "status": "DEVELOPMENT PLACEHOLDER",
+  "note": "Worked examples of good coaching scenarios, shown to the model so it understands the purpose, shape and tone before it generates one. Both examples here were written by Claude for development only and must be replaced by Addison Robertson (subject-matter expert). They are teaching exemplars, not validated content, and they are never shown to a teacher as a scenario. Classrooms, children and names in them are invented; nothing here comes from a real school (rule 7).",
+  "owner": "Addison Robertson (SME), pending rewrite",
+  "version": "dev-0.1",
+  "how_these_are_used": "One or two examples whose component and grade band best match the chosen objective are placed in the generation prompt as <example> data, never as instructions. The generated scenario is checked for copied wording against these examples as well as against the research, so a new scenario can echo their shape but not their sentences.",
+  "what_makes_a_good_scenario": [
+    "It is a decision point, not a quiz: the teacher could reasonably do three or four different things next.",
+    "It shows what students did, in observable detail (what a child said, wrote, or got stuck on), rather than naming the skill that is missing.",
+    "It is small enough to answer in a short paragraph: one group, one moment, one lesson.",
+    "The research the scenario was built from has something concrete to say about the decision, so a response can be met with evidence rather than opinion.",
+    "It never implies there is one correct script, and it never evaluates the teacher in the wording of the situation itself."
+  ],
+  "examples": [
+    {
+      "example_id": "ex-blending-k1",
+      "component": "Decoding and word analysis",
+      "grade_band": "K-1",
+      "objective": "Students blend three sounds to read CVC words",
+      "title": "The stretch that never closes",
+      "situation": "It is Tuesday of your first full week on short /a/ CVC words. In your small group of five first graders, you point to 'mat' and ask the group to blend it. Three children say the word straight away. Jada sounds out /m/ /a/ /t/ clearly and confidently, pauses, and then says 'mouse'. She does the same thing on 'sat' and 'tap': every individual sound is correct, and the word she says at the end starts with the right letter but is otherwise unrelated. When you cover the last letter and ask her to read just 'ma', she reads it correctly. The other four children are waiting, and you have about six minutes left in the rotation.",
+      "decision_point": "What would you do next with Jada, and what would you have the rest of the group doing while you do it?",
+      "reflection_prompts": [
+        "What does Jada's success on 'ma' tell you about where her blending is breaking down?",
+        "How would you know by Friday whether what you tried had worked?"
+      ],
+      "anchor_sections": [],
+      "why_this_is_a_good_example": "The behaviour is observable and specific (correct sounds, unrelated word, succeeds on a two-sound chunk), so the research on continuous blending and successive blending has something exact to say. It is a real decision with several defensible answers, it includes the classroom constraint that makes it hard (four other children, six minutes), and nothing in the wording tells the teacher what they should have done."
+    },
+    {
+      "example_id": "ex-retell-23",
+      "component": "Comprehension",
+      "grade_band": "2-3",
+      "objective": "Students retell a narrative text in order, including the problem and how it was resolved",
+      "title": "Everything except what happened",
+      "situation": "Your second graders have just finished a read-aloud of a short story about a boy who loses his dog at a fair and finds it again. You ask partners to retell the story to each other while you listen in. Marcus tells his partner about the fair, the cotton candy, the ferris wheel and the colour of the dog's collar, in enthusiastic detail, and stops. His partner says 'but what happened', and Marcus says 'I just told you'. You hear two other pairs doing something similar: lots of details, no problem, no ending. When you ask Marcus directly what the boy's problem was, he says 'he was sad', which is true but not what you were after.",
+      "decision_point": "You have ten minutes of this block left. What do you do now, and what would you change about how you set up the next retell?",
+      "reflection_prompts": [
+        "What is the difference between what Marcus can recall and what he can organise, and which one did your prompt ask for?",
+        "What would you listen for tomorrow to tell whether the change worked for the other two pairs as well?"
+      ],
+      "anchor_sections": [],
+      "why_this_is_a_good_example": "It separates two things that look alike in the moment, recalling details and organising a narrative, and the student's answer ('he was sad') is plausible rather than wrong, so the teacher has to decide what to do about a partly correct response. The research on narrative structure and retell scaffolds speaks directly to the choice, and the scenario asks both for an immediate move and for a change to the set-up, which is where most of the evidence actually lives."
+    }
+  ]
+}

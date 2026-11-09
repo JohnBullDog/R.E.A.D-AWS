@@ -63,6 +63,12 @@ Build now:
 - One static HTML page, NotebookLM-style: the answer with numbered citations that expand to the
   verbatim excerpts, and a Sources list (D53)
 - Golden-question evaluation script
+- Practice scenarios (`/practice_scenarios`, pulled forward from Phase 2's Coaching Scenario
+  Simulation): a teacher picks a learning objective, R.E.A.D. generates a classroom scenario
+  from the research found for it, the teacher writes what they would do, and the response is
+  read back against that research point by point. Nothing is scored. Scenarios are generated
+  live and labelled machine-written (D104). **`rubric/objectives.json` and
+  `rubric/scenario_examples.json` are DEVELOPMENT PLACEHOLDERS** for Addison to rewrite
 - Material review (`/review`, pulled forward from Phase 2): a teacher uploads sample material
   (PDF, DOCX, PPTX, TXT, or pasted text), confirms the inferred goal, and gets feedback per
   checklist question with research suggestions. **The review checklist (`rubric/checklist.json`) is a DEVELOPMENT PLACEHOLDER.** Its questions were drafted by Claude only so the feature could be built and tested; Addison Robertson (SME) must rewrite them before any teacher use.
@@ -123,6 +129,8 @@ src/read/                 shared library (imported by Lambdas and scripts)
   answer.py               prompt, Converse call, validation
   cite.py                 citation labels from metadata
   webapp.py               the FastAPI app (pages + API), shared by Lambda and dev server
+  scenario.py             practice scenarios: prompts, schemas, validation (D104-D108)
+  scenario_run.py         generate a scenario, then give feedback on the teacher's response
   jobs.py                 ingest/review jobs (worker Lambda or local threads)
 src/handlers/api.py       API Lambda (Mangum)
 src/handlers/worker.py    worker Lambda (ingest, review)
@@ -136,8 +144,11 @@ corpus/                   source files + meta.json sidecars (sources not committ
 eval/golden.jsonl         golden questions with expected section IDs (owned by Addison)
 rubric/checklist.json     review questions (section + whole-document): DEVELOPMENT PLACEHOLDER,
                           to be rewritten by Addison
+rubric/objectives.json    learning objectives for practice scenarios: PLACEHOLDER, Addison's
+rubric/scenario_examples.json  worked example scenarios for the model: PLACEHOLDER, Addison's
 web/index.html            teacher Q&A page (Test)
 web/review.html           material review page; web/checklist.html edits the checklist
+web/scenario.html         practice scenarios: pick an objective, respond, read the feedback
 web/sources.html          ingest and manage sources
 tests/
 ```

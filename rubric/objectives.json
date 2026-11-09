@@ -1,0 +1,78 @@
+{
+  "status": "DEVELOPMENT PLACEHOLDER",
+  "note": "Learning objectives a teacher can practise against in Practice scenarios. Drafted by Claude for development and testing only; Addison Robertson (subject-matter expert) must rewrite them before any teacher use. Components match rubric/checklist.json so the same vocabulary runs through the review and the scenarios. search_query is what retrieval asks the research library for; it is never shown to the teacher.",
+  "owner": "Addison Robertson (SME), pending rewrite",
+  "version": "dev-0.1",
+  "objectives": [
+    {
+      "objective_id": "blend-cvc-k1",
+      "component": "Phonics and decoding",
+      "grade_band": "K-1",
+      "objective": "Students blend three sounds to read CVC words",
+      "search_query": "explicit blending instruction CVC decodable words continuous blending"
+    },
+    {
+      "objective_id": "segment-sounds-k1",
+      "component": "Phonological awareness",
+      "grade_band": "K-1",
+      "objective": "Students segment spoken words into individual sounds",
+      "search_query": "phonemic awareness segmenting sounds in spoken words instruction"
+    },
+    {
+      "objective_id": "digraphs-12",
+      "component": "Phonics and decoding",
+      "grade_band": "1-2",
+      "objective": "Students read and spell words with consonant digraphs",
+      "search_query": "teaching consonant digraphs sh ch th decoding and spelling"
+    },
+    {
+      "objective_id": "vowel-teams-23",
+      "component": "Phonics and decoding",
+      "grade_band": "2-3",
+      "objective": "Students decode one- and two-syllable words with common vowel teams",
+      "search_query": "vowel teams syllable types decoding multisyllabic words instruction"
+    },
+    {
+      "objective_id": "retell-narrative-23",
+      "component": "Comprehension",
+      "grade_band": "2-3",
+      "objective": "Students retell a narrative text in order, including the problem and how it was resolved",
+      "search_query": "narrative text structure retelling story grammar comprehension instruction"
+    },
+    {
+      "objective_id": "ask-answer-questions-k2",
+      "component": "Comprehension",
+      "grade_band": "K-2",
+      "objective": "Students ask and answer questions about a text they have heard or read",
+      "search_query": "questioning during read aloud answering text based questions comprehension"
+    },
+    {
+      "objective_id": "fluency-connected-text-23",
+      "component": "Fluency",
+      "grade_band": "2-3",
+      "objective": "Students read connected text accurately, at a reasonable rate, with expression",
+      "search_query": "repeated oral reading fluency practice feedback connected text"
+    },
+    {
+      "objective_id": "academic-vocabulary-35",
+      "component": "Oral and academic language",
+      "grade_band": "3-5",
+      "objective": "Students use academic vocabulary from a text when they talk about it",
+      "search_query": "academic vocabulary instruction discussion inferential talk elementary"
+    },
+    {
+      "objective_id": "check-understanding-k5",
+      "component": "Assessment",
+      "grade_band": "K-5",
+      "objective": "The teacher checks during the lesson whether each student has learned the skill",
+      "search_query": "formative assessment checking for understanding during reading instruction"
+    },
+    {
+      "objective_id": "small-group-support-k5",
+      "component": "Differentiation",
+      "grade_band": "K-5",
+      "objective": "The teacher adjusts small group instruction for students who have not yet mastered the skill",
+      "search_query": "small group differentiated reading instruction intervention grouping"
+    }
+  ]
+}

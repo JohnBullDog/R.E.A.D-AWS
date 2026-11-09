@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R.E.A.D. Practice</title>
+<script>/* relative links resolve under /READ/ when served from bucklersoftware.com/READ */(function(){var b=document.createElement("base");b.href=/^\/read(\/|$)/i.test(location.pathname)?"/READ/":"/";document.head.appendChild(b);})();</script>
+<link rel="stylesheet" href="style.css">
+<script src="auth.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path><path d="M4 5.5v16"></path><path d="M9 8h7M9 12h5"></path></svg>R.E.A.D.<small class="hide-sm">Reading Educator Assistance Desk</small></a>
+  <span class="devtag">Cloud dev</span>
+</header>
+<div class="app">
+<nav class="side" aria-label="R.E.A.D."><div class="side-title">R.E.A.D.</div><a href="./">Home</a><a href="ask_a_question">Ask a question</a><a href="review_material">Review material</a><a href="practice_scenarios" class="on" aria-current="page">Practice scenarios</a><a href="sources">Sources</a><a href="checklist">Checklist</a></nav>
+<main>
+  <nav class="crumbs" aria-label="Breadcrumbs"><a href="./">R.E.A.D.</a><span aria-hidden="true">›</span><span>Practice scenarios</span></nav>
+  <h1>Practice a classroom decision</h1>
+  <p class="sub">Pick a learning objective. R.E.A.D. finds the research for it and writes a classroom moment that turns on a real decision. You write what you would do, and your response is read back against the same research, point by point. Nothing is scored.</p>
+
+  <div class="disclaimer">
+    <strong>Scenarios are machine-written.</strong> Each one is generated when you ask for it, from the research sections shown under it, using worked examples written for development. No reading specialist has reviewed this scenario, so read it as practice, not as guidance.
+  </div>
+  <div class="disclaimer">
+    <strong>Development objectives.</strong> The objective list and the worked examples are placeholders; Addison will rewrite them before any teacher use.
+  </div>
+
+  <section id="step1" class="panel">
+    <h3>1. What do you want to practise?</h3>
+    <div class="grid">
+      <label>Learning objective<select id="objective"></select></label>
+      <label>Grade (K, 1, or a range like K-2)<input id="band" type="text" placeholder="K-5"></label>
+    </div>
+    <label id="customWrap" style="display:none;margin-top:10px" class="notice">Your own objective
+      <textarea id="custom" rows="2" maxlength="300" placeholder="e.g. Students use evidence from the text when they answer a question"></textarea>
+    </label>
+    <p id="objNote" class="notice"></p>
+    <div class="row" style="margin-top:10px"><button id="makeBtn" type="button">Create a scenario</button><span id="makeMsg" class="notice"></span></div>
+  </section>
+
+  <section id="step2" class="panel" hidden>
+    <div class="header-row"><h3 id="scTitle" style="margin:0"></h3><span class="tag">Machine-written</span></div>
+    <p id="scSituation" class="answertext"></p>
+    <p id="scDecision" class="answertext"><strong></strong></p>
+    <div id="scGrounded"></div>
+    <div class="row" style="margin-top:12px"><button id="againBtn" type="button" class="ghost">Different scenario</button></div>
+  </section>
+
+  <section id="step3" class="panel" hidden>
+    <h3>2. What would you do?</h3>
+    <p class="notice">Write what you would do next and why, the way you would explain it to a coach. A short paragraph is enough.</p>
+    <textarea id="response" rows="8" placeholder="I would…"></textarea>
+    <div class="row" style="margin-top:10px">
+      <label class="check"><input id="synthetic" type="checkbox"> My response names no real student, teacher, or school</label>
+    </div>
+    <div class="row" style="margin-top:10px"><button id="sendBtn" type="button">Get feedback</button><span id="sendMsg" class="notice"></span></div>
+    <p id="progress" class="notice"></p>
+  </section>
+
+  <section id="step4" hidden>
+    <div class="panel">
+      <div class="header-row"><h2 style="margin:0">Feedback</h2><span id="fbStats" class="notice"></span></div>
+      <div class="alert info slim"><div>R.E.A.D. worked out what the research says to do at this decision point, then read your response against each of those points. The quotes in grey are your own words, copied exactly; the quotes in a research card are the source's own words.</div></div>
+      <div id="points"></div>
+      <div id="reflect"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><button id="retryBtn" type="button">Try another approach</button><span id="attemptNote" class="notice"></span></div>
+  </section>
+</main>
+</div>
+<script>
+// All research and model text is rendered with textContent (CLAUDE.md rule 9).
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+let objectives = [];
+let sid = null;
+let research = {};
+let attempts = [];  // this browser only; nothing is stored on the server (design doc)
+let seen = [];  // scenarios already shown for this objective, so the next one is different
+
+const DID = {"did": "Did this", "partly": "Partly", "not mentioned": "Not mentioned"};
+
+async function call(method, url, body) {
+  const r = await fetch(url, {method, headers: body ? {"Content-Type": "application/json"} : {}, body: body ? JSON.stringify(body) : undefined});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || r.status);
+  return data;
+}
+
+// ---------- 1. objectives ----------
+
+async function loadObjectives() {
+  try {
+    const bank = await call("GET", "api/objectives");
+    objectives = bank.objectives || [];
+  } catch (e) {
+    $("objNote").append(el("span", "err", "The objective list couldn't be loaded: " + e.message));
+    return;
+  }
+  const sel = $("objective");
+  const by = {};
+  for (const o of objectives) (by[o.component] = by[o.component] || []).push(o);
+  for (const [component, list] of Object.entries(by)) {
+    const g = document.createElement("optgroup");
+    g.label = component;
+    for (const o of list) {
+      const opt = el("option", null, `${o.objective} (${o.grade_band})`);
+      opt.value = o.objective_id;
+      g.append(opt);
+    }
+    sel.append(g);
+  }
+  const own = el("option", null, "Something else — I'll write it");
+  own.value = "";
+  sel.append(own);
+  sel.addEventListener("change", onPick);
+  onPick();
+}
+
+function onPick() {
+  seen = [];
+  const o = objectives.find((x) => x.objective_id === $("objective").value);
+  $("customWrap").style.display = o ? "none" : "block";
+  $("band").value = o ? o.grade_band : ($("band").value || "K-5");
+  $("objNote").textContent = o ? "" : "Write one objective in a sentence. R.E.A.D. searches the research library for it, so be specific about the skill.";
+}
+
+// ---------- 2. the scenario ----------
+
+function researchCard(cite) {
+  const x = research[cite] || {};
+  const box = el("article", "panel refcard");
+  box.append(el("div", "kind", "Research · full section"), el("strong", null, x.label || cite),
+    el("div", "kind", "Verbatim source text"), el("blockquote", null, x.text || "Section unavailable."));
+  return box;
+}
+
+function toggle(host, key, make) {
+  const open = host.querySelector(`[data-k="${key}"]`);
+  if (open) { open.remove(); return; }
+  const box = make();
+  box.dataset.k = key;
+  host.append(box);
+}
+
+function chip(label, cls, onClick, title) {
+  const b = el("button", cls || "chip", label);
+  b.type = "button";
+  if (title) b.title = title;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function showScenario(res) {
+  sid = res.scenario_id;
+  research = res.research || {};
+  attempts = [];
+  seen.push(`${res.scenario.title}: ${res.scenario.situation.slice(0, 160)}`);
+  $("scTitle").textContent = res.scenario.title;
+  $("scSituation").textContent = res.scenario.situation;
+  $("scDecision").replaceChildren(el("strong", null, res.scenario.decision_point));
+  const g = $("scGrounded");
+  g.replaceChildren();
+  const row = el("div", "row");
+  row.append(el("span", "kind", "Built from"));
+  for (const c of res.scenario.grounded_in || []) {
+    row.append(chip(c.slice(1), "chip", () => toggle(g, "s-" + c, () => researchCard(c)), (research[c] || {}).label));
+  }
+  g.append(row, el("span", "hint", "These are the research sections the scenario was written from. Open one to read it word for word."));
+  $("step2").hidden = false;
+  $("step3").hidden = false;
+  $("step4").hidden = true;
+  $("response").value = "";
+  $("step2").scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+async function makeScenario() {
+  $("makeMsg").textContent = "Finding the research and writing a scenario…";
+  $("makeBtn").disabled = true;
+  $("againBtn").disabled = true;
+  const id = $("objective").value;
+  const body = id ? {objective_id: id} : {objective: $("custom").value.trim(), grade_band: $("band").value.trim()};
+  body.avoid = seen.slice(-6);
+  if (!id && !body.objective) { $("makeMsg").textContent = "Write an objective first."; $("makeBtn").disabled = false; $("againBtn").disabled = false; return; }
+  try {
+    showScenario(await call("POST", "api/scenario", body));
+    $("makeMsg").textContent = "";
+  } catch (e) {
+    $("makeMsg").replaceChildren(el("span", "err", e.message));
+  }
+  $("makeBtn").disabled = false;
+  $("againBtn").disabled = false;
+}
+
+// ---------- 3. response and feedback ----------
+
+function sentenceLine(s, host) {
+  const p = el("p", "answertext");
+  for (const part of s.parts || [{text: s.text}]) {
+    if (part.quote != null) {
+      const q = el("q", "vquote", part.quote);
+      q.title = part.cite && part.cite.startsWith("R") ? "Your own words, copied exactly" : "Exact words from the research (verified)";
+      p.append(q);
+    } else p.append(part.text);
+  }
+  for (const c of s.cites || []) p.append(" ", chip(c.slice(1), "chip", () => toggle(host, "s-" + c, () => researchCard(c)), (research[c] || {}).label));
+  return p;
+}
+
+function pointCard(p) {
+  const det = el("details", "check");
+  det.open = p.did !== "did";
+  const sum = el("summary");
+  const q = el("span", "q");
+  q.append(el("span", null, p.point));
+  sum.append(q, el("span", "tag" + (p.did === "did" ? " ok" : ""), DID[p.did] || p.did));
+  det.append(sum);
+  const body = el("div", "trail-body");
+  body.append(el("div", "kind", "What the research says"));
+  const src = el("div", "row");
+  src.append(chip(p.cite.slice(1), "chip", () => toggle(body, "s-" + p.cite, () => researchCard(p.cite)), (research[p.cite] || {}).label),
+    el("span", "notice", (research[p.cite] || {}).label || ""));
+  body.append(src);
+  body.append(el("div", "kind", "Your response"));
+  for (const s of p.observation || []) body.append(sentenceLine(s, body));
+  body.append(el("div", "kind", "What the research recommends"));
+  for (const s of p.suggestion || []) body.append(sentenceLine(s, body));
+  det.append(body);
+  return det;
+}
+
+function showFeedback(r) {
+  const host = $("points");
+  host.replaceChildren();
+  for (const p of r.points || []) host.append(pointCard(p));
+  if (!(r.points || []).length) host.append(el("p", "err", "No feedback could be generated for this response."));
+  const ref = $("reflect");
+  ref.replaceChildren(el("h3", null, "Before you try again"));
+  for (const x of r.reflection_prompts || []) ref.append(el("p", "notice", x));
+  if ((r.dropped_points || []).length) {
+    ref.append(el("p", "hint", "Points left out because no research-backed feedback could be written: " + r.dropped_points.join(" · ")));
+  }
+  const st = r.stats || {};
+  $("fbStats").textContent = `${(r.points || []).length} points · ${st.model_calls || 0} model calls · ${st.seconds || 0}s`;
+  $("step4").hidden = false;
+  $("attemptNote").textContent = attempts.length > 1 ? `Attempt ${attempts.length}. Earlier attempts stay in this browser only.` : "";
+  $("step4").scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+async function send() {
+  const text = $("response").value.trim();
+  $("sendMsg").textContent = "";
+  if (!text) { $("sendMsg").textContent = "Write what you would do first."; return; }
+  if (!$("synthetic").checked) { $("sendMsg").textContent = "Please confirm there is no real student or teacher in your response."; return; }
+  $("sendBtn").disabled = true;
+  try {
+    await call("POST", `api/scenario/${sid}/respond`, {synthetic: true, response: text, prior: attempts.map((a) => ({response: a}))});
+    attempts.push(text);
+    await poll();
+  } catch (e) {
+    $("sendMsg").replaceChildren(el("span", "err", e.message));
+  }
+  $("sendBtn").disabled = false;
+}
+
+async function poll() {
+  for (;;) {
+    let st;
+    try {
+      st = await call("GET", `api/scenario/${sid}`);
+    } catch (e) {
+      $("progress").replaceChildren(el("span", "err", e.message));
+      return;
+    }
+    research = st.research || research;
+    if (st.state === "failed") { $("progress").replaceChildren(el("span", "err", "The feedback failed: " + st.error)); return; }
+    if (st.state === "done") {
+      $("progress").textContent = "";
+      const r = st.result || {};
+      if (!r.ok) { $("progress").replaceChildren(el("span", "err", "Feedback couldn't be generated: " + (r.problems || []).join("; "))); return; }
+      showFeedback(r);
+      return;
+    }
+    $("progress").textContent = `${st.phase || "Working"}… ${st.done || 0}/${st.total || 3}`;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
+$("makeBtn").addEventListener("click", makeScenario);
+$("againBtn").addEventListener("click", makeScenario);
+$("sendBtn").addEventListener("click", send);
+$("retryBtn").addEventListener("click", () => {
+  $("step4").hidden = true;
+  $("response").value = "";
+  $("response").focus();
+  $("step3").scrollIntoView({behavior: "smooth", block: "start"});
+});
+loadObjectives();
+</script>
+</body>
+</html>

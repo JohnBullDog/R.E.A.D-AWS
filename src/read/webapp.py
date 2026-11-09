@@ -17,11 +17,11 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
-from read import pipeline, review, service
+from read import pipeline, review, scenario, scenario_run, service
 from read.chunk import sha
 from read.extract import Unsupported, extract
 from read.ingest import LICENSE_FIELDS, WORK_ID, check_meta
-from read.jobs import CHECKLIST_KEY, WEB, Env
+from read.jobs import CHECKLIST_KEY, EXAMPLES_KEY, OBJECTIVES_KEY, WEB, Env, scenario_deps
 
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 NO_CACHE = {"Cache-Control": "no-cache"}  # pages and styles always revalidate
@@ -29,6 +29,7 @@ PAGES = {
     "/": "home.html",
     "/ask_a_question": "index.html",
     "/review_material": "review.html",
+    "/practice_scenarios": "scenario.html",
     "/sources": "sources.html",
     "/checklist": "checklist.html",
     "/style.css": "style.css",
@@ -37,6 +38,7 @@ PAGES = {
 # old addresses keep working; relative targets stay under /READ/ on bucklersoftware.com
 MOVED = {"/review": "review_material"}
 GONE = "review not found (material is deleted after 24 hours)"
+SCENARIO_GONE = "scenario not found (practice scenarios are deleted after 24 hours)"
 # Defense in depth for pages that render corpus and model text (rule 9 is the main control):
 # scripts and requests only to this site, fonts from Google Fonts, no framing.
 SECURITY_HEADERS = {
@@ -90,6 +92,20 @@ class StatusIn(BaseModel):
 class TagsIn(BaseModel):
     expires_on: str | None = None
     superseded_by: str | None = None
+
+
+class ScenarioIn(BaseModel):
+    objective_id: str = ""  # an id from the SME bank, or empty with a custom objective
+    objective: str = ""  # the teacher's own objective
+    grade_band: str = ""
+    component: str = ""
+    avoid: list[str] = []  # scenarios this browser has already shown, so the next one differs
+
+
+class ResponseIn(BaseModel):
+    synthetic: bool  # the teacher confirms there is no real student or teacher in the response
+    response: str
+    prior: list[dict] = []  # earlier attempts the browser kept, for comparison (nothing stored)
 
 
 class GoalIn(BaseModel):
@@ -333,6 +349,126 @@ def create_app(env: Env) -> FastAPI:
             "ok": True,
             "note": "Removed from search and tables; the file and meta.json stay in the "
             "sources bucket.",
+        }
+
+    # ---------- practice scenarios (D104-D107; SME files: rubric/objectives.json and
+    # rubric/scenario_examples.json, both DEVELOPMENT PLACEHOLDERS) ----------
+
+    @app.get("/api/objectives")
+    def api_objectives():
+        return env.objectives()
+
+    @app.put("/api/objectives")
+    def api_objectives_save(body: dict):
+        problems = scenario.check_objectives(body)
+        if problems:
+            raise HTTPException(400, "; ".join(problems[:5]))
+        current = env.objectives()
+        keep = {k: current[k] for k in ("status", "note", "owner") if k in current}
+        env.app_files.put_json(OBJECTIVES_KEY, {**keep, **body, **keep})
+        return {"ok": True}
+
+    @app.get("/api/scenario_examples")
+    def api_examples():
+        return env.scenario_examples()
+
+    @app.put("/api/scenario_examples")
+    def api_examples_save(body: dict):
+        problems = scenario.check_examples(body)
+        if problems:
+            raise HTTPException(400, "; ".join(problems[:5]))
+        current = env.scenario_examples()
+        keep = {k: current[k] for k in ("status", "note", "owner") if k in current}
+        env.app_files.put_json(EXAMPLES_KEY, {**keep, **body, **keep})
+        return {"ok": True}
+
+    @app.post("/api/scenario")
+    def api_scenario_new(body: ScenarioIn):
+        """Generate one scenario for a learning objective, grounded in the research."""
+        bank = env.objectives().get("objectives", [])
+        if body.objective_id:
+            objective = next((o for o in bank if o.get("objective_id") == body.objective_id), None)
+            if objective is None:
+                raise HTTPException(404, "that learning objective is not in the bank")
+        else:
+            objective = scenario.clean_objective(body.model_dump())
+            if not objective["objective"]:
+                raise HTTPException(400, "Choose an objective or write one.")
+        env.temp.purge()
+        examples = env.scenario_examples().get("examples", [])
+        try:
+            out = scenario_run.generate(
+                objective, examples, scenario_deps(env), [str(a)[:200] for a in body.avoid[:6]]
+            )
+        except Exception as e:
+            raise HTTPException(502, f"{type(e).__name__}: {e}"[:200]) from None
+        if not out["ok"]:
+            raise HTTPException(
+                502, "; ".join(out.get("problems", ["scenario not generated"]))[:400]
+            )
+        sid = env.temp.new()
+        env.temp.put_json(sid, "scenario.json", out)
+        return {
+            "scenario_id": sid,
+            "objective": objective,
+            "scenario": out["scenario"],
+            "research": {
+                k: {"cite_id": k, "label": v.get("label"), "text": v.get("text")}
+                for k, v in out["research"].items()
+                if k in out["scenario"].get("grounded_in", [])
+            },
+            "stats": out["stats"],
+        }
+
+    @app.post("/api/scenario/{sid}/respond")
+    def api_scenario_respond(sid: str, body: ResponseIn):
+        if not body.synthetic:
+            raise HTTPException(
+                400, "Confirm the response names no real student, teacher, or school."
+            )
+        try:
+            if not env.temp.exists(sid, "scenario.json"):
+                raise FileNotFoundError(sid)
+        except (KeyError, FileNotFoundError):
+            raise HTTPException(404, SCENARIO_GONE) from None
+        text = body.response.replace("\r\n", "\n").replace("\r", "\n").strip()
+        problems = scenario.check_response(text)
+        if problems:
+            raise HTTPException(400, " ".join(problems))
+        env.temp.put_json(
+            sid,
+            "attempt.json",
+            {"response": text, "prior": body.prior[: scenario.MAX_PRIOR_ATTEMPTS]},
+        )
+        env.temp.put_json(
+            sid, "state.json", {"state": "running", "phase": "Starting", "done": 0, "total": 3}
+        )
+        env.start({"kind": "scenario", "sid": sid})
+        return {"ok": True}
+
+    @app.get("/api/scenario/{sid}")
+    def api_scenario_status(sid: str):
+        try:
+            record = env.temp.get_json(sid, "scenario.json")
+        except (KeyError, FileNotFoundError):
+            raise HTTPException(404, SCENARIO_GONE) from None
+        try:
+            state = env.temp.get_json(sid, "state.json")
+        except FileNotFoundError:
+            state = {"state": "not started"}
+        if state.get("state") == "done":
+            try:
+                state["result"] = env.temp.get_json(sid, "feedback.json")
+            except FileNotFoundError:
+                state = {"state": "failed", "error": "the finished feedback was not saved"}
+        return {
+            **state,
+            "objective": record["objective"],
+            "scenario": record["scenario"],
+            "research": {
+                k: {"cite_id": k, "label": v.get("label"), "text": v.get("text")}
+                for k, v in record["research"].items()
+            },
         }
 
     # ---------- material review (development checklist: rubric/checklist.json) ----------
