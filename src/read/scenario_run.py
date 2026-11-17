@@ -7,8 +7,8 @@ deps = {
 }
 
 Generation is one search and one model call, so it answers inside an API request. Evaluation is
-one search and two calls and runs as a worker job (D107), because API Gateway waits at most 30
-seconds.
+one search and three calls (points, feedback, coaching summary, D109) and runs as a worker job
+(D107), because API Gateway waits at most 30 seconds.
 """
 
 import time
@@ -19,6 +19,9 @@ from read import scenario as S
 SCENARIO_TOKENS = 1200
 POINTS_TOKENS = 900
 FEEDBACK_TOKENS = 2000
+SUMMARY_TOKENS = 1600
+FOLLOW_TOKENS = 700
+STEPS = 4
 
 
 def _number(research: dict, by_section: dict, excerpts: list[dict]) -> list[str]:
@@ -113,7 +116,7 @@ def evaluate(
     resp_texts = {p["id"]: p["text"] for p in parts}
     calls = 0
 
-    progress(phase="Finding research for your response", done=0, total=3)
+    progress(phase="Finding research for your response", done=0, total=STEPS)
     query = f"{objective['objective']}. {' '.join(response_text.split()[:120])}"
     try:
         found = deps["search"](query, objective.get("grade_band", "K-5"))[: S.EVAL_RESEARCH]
@@ -127,7 +130,7 @@ def evaluate(
     )
     research_texts = {k: v["text"] for k, v in research.items()}
 
-    progress(phase="Reading what the research says", done=1, total=3)
+    progress(phase="Reading what the research says", done=1, total=STEPS)
     pprompt = S.points_prompt(objective, scenario, _items(research, ids))
 
     def ask_points(fb):
@@ -169,7 +172,7 @@ def evaluate(
     used_texts = {c: research_texts[c] for c in cited}
     need = list(points)  # the points still expected; salvage may prune it
 
-    progress(phase="Giving feedback on your response", done=2, total=3)
+    progress(phase="Giving feedback on your response", done=2, total=STEPS)
     fprompt = S.feedback_prompt(
         objective, scenario, points, parts, _items(research, cited), prior or []
     )
@@ -200,7 +203,7 @@ def evaluate(
 
     fres = R.with_retry(ask_feedback, check, salvage)
     calls += len(fres["attempts"])
-    progress(phase="Giving feedback on your response", done=3, total=3)
+    progress(phase="Writing the coaching review", done=3, total=STEPS)
     out = {
         **base,
         "ok": fres["ok"],
@@ -227,4 +230,170 @@ def evaluate(
     ]
     out["reflection_prompts"] = fres["result"].get("reflection_prompts", [])
     out["dropped_points"] = [p["point"] for p in points if p["point_id"] not in by_point]
+
+    # The coaching review (D109) is written from the checked feedback only. It fails soft: the
+    # point-by-point feedback above stands on its own.
+    sres = summarize(objective, scenario, parts, out["points"], research, deps)
+    calls += len(sres["attempts"])
+    if sres["ok"]:
+        texts_all = resp_texts | research_texts
+        out["summary"] = {
+            "paragraphs": [S.show(para, texts_all) for para in sres["result"]["paragraphs"]]
+        }
+        offered = sres["result"].get("follow_ups") or []
+        out["follow_ups"] = S.clean_follow_ups(offered, out["points"], research_texts)
+        if len(out["follow_ups"]) < len(offered):
+            out["fixes"].append(
+                f"follow-ups: kept {len(out['follow_ups'])} of {len(offered)}: "
+                + "; ".join(
+                    str(u.get("question", ""))[:80] for u in offered if u not in out["follow_ups"]
+                )
+            )
+        out["fixes"] += sres.get("salvaged", [])
+    else:
+        out["summary"] = None
+        out["summary_problems"] = sres.get("problems", [])
+    out["attempts"] = out["attempts"] + [{"summary": a} for a in sres["attempts"]]
+    if not out.get("follow_ups") and any(p["did"] != "did" for p in out["points"]):
+        # Nova often leaves the optional questions out of the review call; ask for them alone
+        ups, n = ask_follow_ups(objective, scenario, parts, out["points"], research_texts, deps)
+        calls += n
+        out["follow_ups"] = ups
+        out["fixes"].append(f"follow-ups: asked separately, {len(ups)} kept")
+    out["stats"] = {"model_calls": calls, "seconds": round(time.time() - t0, 1)}
+    progress(phase="Writing the coaching review", done=STEPS, total=STEPS)
     return out
+
+
+def summarize(
+    objective: dict,
+    scenario: dict,
+    parts: list[dict],
+    points: list[dict],
+    research: dict,
+    deps: dict,
+) -> dict:
+    """A one- or two-paragraph reply in a reviewer's voice, from the checked points."""
+    if not points:
+        return {"ok": False, "problems": ["no checked feedback to summarise"], "attempts": []}
+    resp_ids = {p["id"] for p in parts}
+    resp_texts = {p["id"]: p["text"] for p in parts}
+    cited = sorted(set().union(*S.allowed_cites(points).values()), key=lambda c: int(c[1:]))
+    texts = {c: research[c]["text"] for c in cited if c in research}
+    prompt = S.summary_prompt(objective, scenario, parts, points, _items(research, cited))
+    point_ids = [p["point_id"] for p in points]
+
+    def ask(fb):
+        return S.sanitize_summary(
+            R.converse(
+                deps["client"],
+                S.SUMMARY_SYSTEM,
+                prompt + (f"\n\n{fb}" if fb else ""),
+                "record_summary",
+                S.SUMMARY_SCHEMA,
+                SUMMARY_TOKENS,
+            ),
+            point_ids,
+            resp_ids,
+            texts,
+        )
+
+    try:
+        res = R.with_retry(
+            ask,
+            lambda o: S.validate_summary(o, points, resp_ids, texts, resp_texts),
+            lambda o: S.salvage_summary(o, points, resp_ids, texts, resp_texts),
+        )
+    except Exception as exc:  # never lose the point-by-point feedback over the summary
+        return {"ok": False, "problems": [f"{type(exc).__name__}: {exc}"[:300]], "attempts": []}
+    if res["ok"]:
+        res["result"].pop("salvaged_from", None)
+    return res
+
+
+def follow_up(record: dict, feedback: dict, point_id: str, answer: str, deps: dict) -> dict:
+    """Feedback on the teacher's answer to one optional follow-up question (D110): one call,
+    read against that point and the research behind it only. The question is taken from the
+    stored feedback, never from the browser."""
+    t0 = time.time()
+    point = next((p for p in feedback.get("points", []) if p["point_id"] == point_id), None)
+    ask = next((u for u in feedback.get("follow_ups", []) if u.get("point_id") == point_id), None)
+    if not point or not ask:
+        return {"ok": False, "problems": ["that follow-up question is not part of this feedback"]}
+    research = feedback["research"]
+    cited = sorted(S.allowed_cites([point])[point_id], key=lambda c: int(c[1:]))
+    texts = {c: research[c]["text"] for c in cited if c in research}
+    parts = S.response_parts(answer)
+    resp_ids = {p["id"] for p in parts}
+    resp_texts = {p["id"]: p["text"] for p in parts}
+    prompt = S.follow_up_prompt(
+        record["objective"],
+        record["scenario"],
+        point,
+        ask["question"],
+        parts,
+        _items(research, list(texts)),
+    )
+
+    def call(fb):
+        return S.sanitize_follow(
+            R.converse(
+                deps["client"],
+                S.FOLLOW_SYSTEM,
+                prompt + (f"\n\n{fb}" if fb else ""),
+                "record_follow_up",
+                S.FOLLOW_SCHEMA,
+                FOLLOW_TOKENS,
+            ),
+            resp_ids,
+            texts,
+        )
+
+    res = R.with_retry(
+        call,
+        lambda o: S.validate_follow(o, resp_ids, texts, resp_texts),
+        lambda o: S.salvage_follow(o, resp_ids, texts, resp_texts),
+    )
+    out = {
+        "ok": res["ok"],
+        "point_id": point_id,
+        "question": ask["question"],
+        "attempts": res["attempts"],
+        "stats": {"model_calls": len(res["attempts"]), "seconds": round(time.time() - t0, 1)},
+    }
+    if res["ok"]:
+        out["did"] = res["result"]["did"]
+        out["reply"] = S.show(res["result"]["reply"], resp_texts | texts)
+    else:
+        out["problems"] = res.get("problems", [])
+    return out
+
+
+def ask_follow_ups(
+    objective: dict,
+    scenario: dict,
+    parts: list[dict],
+    points: list[dict],
+    research_texts: dict,
+    deps: dict,
+) -> tuple[list[dict], int]:
+    """The follow-up questions on their own (D110), when the review call left them out. One
+    call, no retry: they are optional, and the questions that don't pass are dropped."""
+    try:
+        raw = R.converse(
+            deps["client"],
+            S.FOLLOW_UPS_SYSTEM,
+            S.follow_ups_prompt(objective, scenario, parts, points),
+            "record_follow_ups",
+            S.FOLLOW_UPS_SCHEMA,
+            FOLLOW_TOKENS,
+        )
+    except Exception:  # optional: the page falls back to the reflection prompts
+        return [], 1
+    ups = raw.get("follow_ups") if isinstance(raw, dict) else None
+    clean = [
+        {"point_id": str(u.get("point_id", "")), "question": " ".join(str(u["question"]).split())}
+        for u in (ups if isinstance(ups, list) else [])
+        if isinstance(u, dict) and isinstance(u.get("question"), str)
+    ]
+    return S.clean_follow_ups(clean, points, research_texts), 1

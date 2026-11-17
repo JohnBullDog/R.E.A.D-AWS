@@ -108,6 +108,12 @@ class ResponseIn(BaseModel):
     prior: list[dict] = []  # earlier attempts the browser kept, for comparison (nothing stored)
 
 
+class FollowUpIn(BaseModel):
+    synthetic: bool  # the teacher confirms there is no real student or teacher in the answer
+    point_id: str
+    answer: str
+
+
 class GoalIn(BaseModel):
     material_type: str
     grade_band: str
@@ -441,10 +447,34 @@ def create_app(env: Env) -> FastAPI:
             {"response": text, "prior": body.prior[: scenario.MAX_PRIOR_ATTEMPTS]},
         )
         env.temp.put_json(
-            sid, "state.json", {"state": "running", "phase": "Starting", "done": 0, "total": 3}
+            sid,
+            "state.json",
+            {"state": "running", "phase": "Starting", "done": 0, "total": scenario_run.STEPS},
         )
         env.start({"kind": "scenario", "sid": sid})
         return {"ok": True}
+
+    @app.post("/api/scenario/{sid}/follow_up")
+    def api_scenario_follow_up(sid: str, body: FollowUpIn):
+        """Feedback on an answer to one optional follow-up question (D110): one model call,
+        answered inside the request (about 5-10 s)."""
+        if not body.synthetic:
+            raise HTTPException(
+                400, "Confirm the answer names no real student, teacher, or school."
+            )
+        try:
+            record = env.temp.get_json(sid, "scenario.json")
+            feedback = env.temp.get_json(sid, "feedback.json")
+        except (KeyError, FileNotFoundError):
+            raise HTTPException(404, SCENARIO_GONE) from None
+        text = body.answer.replace("\r\n", "\n").replace("\r", "\n").strip()
+        problems = scenario.check_answer(text)
+        if problems:
+            raise HTTPException(400, " ".join(problems))
+        out = scenario_run.follow_up(record, feedback, body.point_id, text, scenario_deps(env))
+        if not out["ok"]:
+            raise HTTPException(502, "; ".join(out.get("problems", ["no reply"]))[:400])
+        return out
 
     @app.get("/api/scenario/{sid}")
     def api_scenario_status(sid: str):

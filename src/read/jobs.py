@@ -235,7 +235,7 @@ def run_scenario(env: Env, sid: str) -> None:
     """Evaluate a teacher's response in the worker (D107); the page polls state.json."""
     from read import scenario_run
 
-    state = {"state": "running", "phase": "Starting", "done": 0, "total": 3}
+    state = {"state": "running", "phase": "Starting", "done": 0, "total": scenario_run.STEPS}
     last = [0.0]
     lock = threading.Lock()
 

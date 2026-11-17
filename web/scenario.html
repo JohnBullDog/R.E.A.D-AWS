@@ -6,6 +6,46 @@
 <title>R.E.A.D. Practice</title>
 <script>/* relative links resolve under /READ/ when served from bucklersoftware.com/READ */(function(){var b=document.createElement("base");b.href=/^\/read(\/|$)/i.test(location.pathname)?"/READ/":"/";document.head.appendChild(b);})();</script>
 <link rel="stylesheet" href="style.css">
+<style>
+  .coach { border-left: 4px solid var(--accent); background: var(--shaded); padding: 12px 16px; margin: 12px 0 20px; border-radius: 4px; }
+  .coach h3 { margin: 0 0 6px; }
+  .coach p.answertext { margin: 8px 0 12px; line-height: 1.6; }
+  .chip.pt { font-weight: 600; }
+  .followup { border: 1px solid var(--line); border-radius: 4px; padding: 10px 14px; margin: 8px 0; }
+  .followup .q { flex: 1; font-weight: 600; }
+  .followup textarea { width: 100%; margin-top: 8px; }
+  .followup .reply { margin-top: 8px; border-left: 3px solid var(--accent); padding-left: 10px; }
+  #followups { margin: 0 0 16px; }
+  .ptnum { color: var(--muted); font-weight: 600; margin-right: 6px; white-space: nowrap; }
+  /* collapsible sections */
+  .fold-head { display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px; }
+  .fold-head h2, .fold-head h3 { margin: 0; flex: 1; text-align: left; }
+  [data-fold].folded > .fold-head { margin-bottom: 0; }
+  [data-fold].folded > :not(.fold-head) { display: none !important; }
+  .fold-btn { flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  .fold-btn:hover { background: var(--shaded); color: var(--ink); }
+  .fold-btn svg { transition: transform .15s; }
+  .fold-btn[aria-expanded="false"] svg { transform: rotate(-90deg); }
+  .fold-sec { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+  /* "On this page" side panel */
+  aside.toc { flex: 0 0 230px; padding: 20px 16px; position: sticky; top: 0; align-self: flex-start; max-height: 100vh; overflow-y: auto; border-left: 1px solid var(--line); }
+  .toc-title { font-size: 16px; font-weight: 700; color: var(--heading); padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  .toc a { display: block; padding: 6px 8px; color: var(--secondary); border-left: 2px solid transparent; text-decoration: none; font-size: 14px; line-height: 18px; }
+  .toc a:hover { color: var(--accent); }
+  .toc a.sub { padding-left: 20px; font-size: 13px; display: flex; justify-content: space-between; gap: 6px; }
+  .toc a.on { color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
+  .toc a .st { color: var(--muted); font-weight: 400; white-space: nowrap; }
+  .toc a .st.ok { color: var(--ok); }
+  .toc-tools { margin-top: 10px; gap: 12px; }
+  .toc-tools button { background: none; border: 0; padding: 0; color: var(--accent); font-size: 13px; cursor: pointer; }
+  .toc-btn { display: none; }
+  @media (max-width: 1100px) {
+    aside.toc { position: fixed; right: 16px; bottom: 16px; top: auto; flex: none; max-height: none; overflow: visible; padding: 0; border: 0; z-index: 20; }
+    .toc-btn { display: inline-flex; box-shadow: 0 2px 10px rgba(0, 7, 22, 0.25); }
+    .toc-body { display: none; position: absolute; right: 0; bottom: 48px; width: min(280px, calc(100vw - 32px)); max-height: 60vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: 0 4px 18px rgba(0, 7, 22, 0.25); }
+    aside.toc.open .toc-body { display: block; }
+  }
+</style>
 <script src="auth.js"></script>
 </head>
 <body>
@@ -27,8 +67,8 @@
     <strong>Development objectives.</strong> The objective list and the worked examples are placeholders; Addison will rewrite them before any teacher use.
   </div>
 
-  <section id="step1" class="panel">
-    <h3>1. What do you want to practise?</h3>
+  <section id="step1" class="panel" data-fold data-toc="Objective">
+    <div class="fold-head"><h3>1. What do you want to practise?</h3></div>
     <div class="grid">
       <label>Learning objective<select id="objective"></select></label>
       <label>Grade (K, 1, or a range like K-2)<input id="band" type="text" placeholder="K-5"></label>
@@ -40,16 +80,16 @@
     <div class="row" style="margin-top:10px"><button id="makeBtn" type="button">Create a scenario</button><span id="makeMsg" class="notice"></span></div>
   </section>
 
-  <section id="step2" class="panel" hidden>
-    <div class="header-row"><h3 id="scTitle" style="margin:0"></h3><span class="tag">Machine-written</span></div>
+  <section id="step2" class="panel" data-fold data-toc="Scenario" hidden>
+    <div class="header-row fold-head"><h3 id="scTitle" style="margin:0"></h3><span class="tag">Machine-written</span></div>
     <p id="scSituation" class="answertext"></p>
     <p id="scDecision" class="answertext"><strong></strong></p>
     <div id="scGrounded"></div>
     <div class="row" style="margin-top:12px"><button id="againBtn" type="button" class="ghost">Different scenario</button></div>
   </section>
 
-  <section id="step3" class="panel" hidden>
-    <h3>2. What would you do?</h3>
+  <section id="step3" class="panel" data-fold data-toc="Your response" hidden>
+    <div class="fold-head"><h3>2. What would you do?</h3></div>
     <p class="notice">Write what you would do next and why, the way you would explain it to a coach. A short paragraph is enough.</p>
     <textarea id="response" rows="8" placeholder="I would…"></textarea>
     <div class="row" style="margin-top:10px">
@@ -62,13 +102,32 @@
   <section id="step4" hidden>
     <div class="panel">
       <div class="header-row"><h2 style="margin:0">Feedback</h2><span id="fbStats" class="notice"></span></div>
-      <div class="alert info slim"><div>R.E.A.D. worked out what the research says to do at this decision point, then read your response against each of those points. The quotes in grey are your own words, copied exactly; the quotes in a research card are the source's own words.</div></div>
-      <div id="points"></div>
+      <div class="alert info slim"><div>R.E.A.D. worked out what the research says to do at this decision point, then read your response against each of those points. The review pulls that together; each <strong>Point</strong> chip opens the detail behind it, and each number opens the research. The quotes in grey are your own words, copied exactly; the quotes in a research card are the source's own words.</div></div>
+      <section id="secReview" class="fold-sec" data-fold data-toc="Review" hidden>
+        <div class="fold-head"><h3>Review</h3></div>
+        <div id="coach"></div>
+      </section>
+      <section id="secFollow" class="fold-sec" data-fold data-toc="Follow-up questions" hidden>
+        <div class="fold-head"><h3>Follow-up questions</h3></div>
+        <div id="followups"></div>
+      </section>
+      <section id="secDetail" class="fold-sec" data-fold data-toc="The detail behind this review">
+        <div class="fold-head"><h3>The detail behind this review</h3></div>
+        <div id="points"></div>
+      </section>
       <div id="reflect"></div>
     </div>
     <div class="row" style="margin-top:12px"><button id="retryBtn" type="button">Try another approach</button><span id="attemptNote" class="notice"></span></div>
   </section>
 </main>
+<aside class="toc" id="toc" aria-label="On this page">
+  <button id="tocBtn" type="button" class="toc-btn" aria-expanded="false">Sections</button>
+  <div class="toc-body">
+    <div class="toc-title">On this page</div>
+    <nav id="tocList"></nav>
+    <div class="row toc-tools"><button type="button" id="expandAll">Expand all</button><button type="button" id="collapseAll">Collapse all</button></div>
+  </div>
+</aside>
 </div>
 <script>
 // All research and model text is rendered with textContent (CLAUDE.md rule 9).
@@ -178,6 +237,9 @@ function showScenario(res) {
   $("step3").hidden = false;
   $("step4").hidden = true;
   $("response").value = "";
+  setFold($("step2"), false);
+  setFold($("step3"), false);
+  buildToc();
   $("step2").scrollIntoView({behavior: "smooth", block: "start"});
 }
 
@@ -214,12 +276,41 @@ function sentenceLine(s, host) {
   return p;
 }
 
-function pointCard(p) {
+let pointNo = {};  // point id -> the number shown on its card
+
+function sentenceSpan(s, host, chips = true) {
+  const span = el("span");
+  for (const part of s.parts || [{text: s.text}]) {
+    if (part.quote != null) {
+      const q = el("q", "vquote", part.quote);
+      q.title = part.cite && part.cite.startsWith("R") ? "Your own words, copied exactly" : "Exact words from the research (verified)";
+      span.append(q);
+    } else span.append(part.text);
+  }
+  for (const pid of chips ? s.points || [] : []) {
+    if (!(pid in pointNo)) continue;
+    span.append(" ", chip("Point " + pointNo[pid], "chip pt", () => openPoint(pid), "Open the detail for this point"));
+  }
+  for (const c of chips ? s.cites || [] : []) span.append(" ", chip(c.slice(1), "chip", () => toggle(host, "s-" + c, () => researchCard(c)), (research[c] || {}).label));
+  span.append(" ");
+  return span;
+}
+
+function openPoint(pid) {
+  const det = document.getElementById("pt-" + pid);
+  if (!det) return;
+  setFold($("secDetail"), false);
+  det.open = true;
+  det.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+function pointCard(p, collapsed) {
   const det = el("details", "check");
-  det.open = p.did !== "did";
+  det.id = "pt-" + p.point_id;
+  det.open = !collapsed && p.did !== "did";
   const sum = el("summary");
   const q = el("span", "q");
-  q.append(el("span", null, p.point));
+  q.append(el("span", "ptnum", "Point " + pointNo[p.point_id]), el("span", null, p.point));
   sum.append(q, el("span", "tag" + (p.did === "did" ? " ok" : ""), DID[p.did] || p.did));
   det.append(sum);
   const body = el("div", "trail-body");
@@ -236,14 +327,101 @@ function pointCard(p) {
   return det;
 }
 
+function coachSummary(r) {
+  const host = $("coach");
+  host.replaceChildren();
+  const s = r.summary;
+  if (!s) {
+    if (r.summary_problems) host.append(el("p", "hint", "A written review couldn't be produced for this response, so only the point-by-point detail is shown."));
+    $("secReview").hidden = !r.summary_problems;
+    return false;
+  }
+  const box = el("div", "coach");
+  for (const para of s.paragraphs || []) {
+    const p = el("p", "answertext");
+    // a run of sentences with the same ids (one item, split into sentences) shows its chips once
+    const ids = (x) => JSON.stringify([x.points || [], x.cites || []]);
+    para.forEach((sent, i) => p.append(sentenceSpan(sent, box, i === para.length - 1 || ids(para[i + 1]) !== ids(sent))));
+    box.append(p);
+  }
+  host.append(box);
+  $("secReview").hidden = false;
+  return true;
+}
+
+const DID_ANSWER = {"did": "Covers it", "partly": "Partly", "not mentioned": "Not yet"};
+
+function followUps(r) {
+  const host = $("followups");
+  host.replaceChildren();
+  const ups = r.follow_ups || [];
+  $("secFollow").hidden = !ups.length;
+  if (!ups.length) return;
+  host.append(el("p", "hint", "Optional. Pick one to talk through, and R.E.A.D. will read your answer against the research behind that point."));
+  for (const u of ups) {
+    const box = el("div", "followup");
+    const head = el("div", "row");
+    head.append(el("span", "q", u.question));
+    if (u.point_id in pointNo) head.append(chip("Point " + pointNo[u.point_id], "chip pt", () => openPoint(u.point_id), "Open the detail for this point"));
+    const open = chip("Answer this", "ghost", () => { form.hidden = !form.hidden; if (!form.hidden) ta.focus(); });
+    head.append(open);
+    const form = el("div");
+    form.hidden = true;
+    const ta = el("textarea");
+    ta.rows = 3;
+    ta.placeholder = "I would…";
+    const send = el("button", null, "Send");
+    send.type = "button";
+    const msg = el("span", "notice");
+    const out = el("div");
+    const row = el("div", "row");
+    row.style.marginTop = "6px";
+    row.append(send, msg);
+    form.append(ta, row);
+    send.addEventListener("click", async () => {
+      const text = ta.value.trim();
+      msg.textContent = "";
+      if (!text) { msg.textContent = "Write your answer first."; return; }
+      if (!$("synthetic").checked) { msg.textContent = "Please confirm above that your writing names no real student or teacher."; return; }
+      send.disabled = true;
+      msg.textContent = "Reading your answer…";
+      try {
+        const res = await call("POST", `api/scenario/${sid}/follow_up`, {synthetic: true, point_id: u.point_id, answer: text});
+        msg.textContent = "";
+        out.replaceChildren();
+        const reply = el("div", "reply");
+        reply.append(el("span", "tag" + (res.did === "did" ? " ok" : ""), DID_ANSWER[res.did] || res.did));
+        const p = el("p", "answertext");
+        const rs = res.reply || [];
+        const ids = (x) => JSON.stringify([x.points || [], x.cites || []]);
+        rs.forEach((s, i) => p.append(sentenceSpan(s, reply, i === rs.length - 1 || ids(rs[i + 1]) !== ids(s))));
+        reply.append(p);
+        out.append(reply);
+      } catch (e) {
+        msg.replaceChildren(el("span", "err", e.message));
+      }
+      send.disabled = false;
+    });
+    box.append(head, form, out);
+    host.append(box);
+  }
+}
+
 function showFeedback(r) {
+  pointNo = {};
+  (r.points || []).forEach((p, i) => { pointNo[p.point_id] = i + 1; });
+  const reviewed = coachSummary(r);
   const host = $("points");
   host.replaceChildren();
-  for (const p of r.points || []) host.append(pointCard(p));
+  for (const p of r.points || []) host.append(pointCard(p, reviewed));
   if (!(r.points || []).length) host.append(el("p", "err", "No feedback could be generated for this response."));
+  followUps(r);
   const ref = $("reflect");
-  ref.replaceChildren(el("h3", null, "Before you try again"));
-  for (const x of r.reflection_prompts || []) ref.append(el("p", "notice", x));
+  ref.replaceChildren();
+  if (!(r.follow_ups || []).length && (r.reflection_prompts || []).length) {  // no follow-ups: the older prompts
+    ref.append(el("h3", null, "Before you try again"));
+    for (const x of r.reflection_prompts) ref.append(el("p", "notice", x));
+  }
   if ((r.dropped_points || []).length) {
     ref.append(el("p", "hint", "Points left out because no research-backed feedback could be written: " + r.dropped_points.join(" · ")));
   }
@@ -251,6 +429,8 @@ function showFeedback(r) {
   $("fbStats").textContent = `${(r.points || []).length} points · ${st.model_calls || 0} model calls · ${st.seconds || 0}s`;
   $("step4").hidden = false;
   $("attemptNote").textContent = attempts.length > 1 ? `Attempt ${attempts.length}. Earlier attempts stay in this browser only.` : "";
+  for (const id of ["secReview", "secFollow", "secDetail"]) setFold($(id), false);
+  buildToc();
   $("step4").scrollIntoView({behavior: "smooth", block: "start"});
 }
 
@@ -284,11 +464,13 @@ async function poll() {
     if (st.state === "done") {
       $("progress").textContent = "";
       const r = st.result || {};
+      // the feedback's own search adds sections (S7, S8, ...) the scenario never had
+      research = {...research, ...(r.research || {})};
       if (!r.ok) { $("progress").replaceChildren(el("span", "err", "Feedback couldn't be generated: " + (r.problems || []).join("; "))); return; }
       showFeedback(r);
       return;
     }
-    $("progress").textContent = `${st.phase || "Working"}… ${st.done || 0}/${st.total || 3}`;
+    $("progress").textContent = `${st.phase || "Working"}… ${st.done || 0}/${st.total || 4}`;
     await new Promise((r) => setTimeout(r, 2000));
   }
 }
@@ -299,9 +481,132 @@ $("sendBtn").addEventListener("click", send);
 $("retryBtn").addEventListener("click", () => {
   $("step4").hidden = true;
   $("response").value = "";
+  setFold($("step3"), false);
+  buildToc();
   $("response").focus();
   $("step3").scrollIntoView({behavior: "smooth", block: "start"});
 });
+
+// ---------- collapsible sections and the "On this page" panel ----------
+
+function chevron() {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  for (const [k, v] of Object.entries({width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2.5, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true"})) svg.setAttribute(k, v);
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("d", "M6 9l6 6 6-6");
+  svg.append(path);
+  return svg;
+}
+
+function setFold(sec, folded) {
+  if (!sec) return;
+  sec.classList.toggle("folded", folded);
+  const b = sec.querySelector(":scope > .fold-head > .fold-btn");
+  if (b) {
+    b.setAttribute("aria-expanded", String(!folded));
+    b.title = folded ? "Expand this section" : "Collapse this section";
+  }
+}
+
+function initFold(sec) {
+  const head = sec.querySelector(":scope > .fold-head");
+  if (!head) return;
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "fold-btn";
+  b.append(chevron());
+  b.setAttribute("aria-label", "Collapse or expand " + (sec.dataset.toc || "this section"));
+  head.prepend(b);
+  head.addEventListener("click", (e) => {
+    if (e.target.closest("a, input, select, textarea") || (e.target.closest("button") && e.target.closest("button") !== b)) return;
+    setFold(sec, !sec.classList.contains("folded"));
+  });
+  setFold(sec, false);
+}
+
+function visible(node) { return !node.closest("[hidden]"); }
+
+let tocTargets = [];
+
+function tocLink(label, target, onGo, cls) {
+  const a = el("a", cls || null);
+  a.href = "#";
+  a.append(el("span", null, label));
+  a.addEventListener("click", (e) => {
+    e.preventDefault();
+    onGo();
+    $("toc").classList.remove("open");
+    $("tocBtn").setAttribute("aria-expanded", "false");
+  });
+  tocTargets.push({a, target});
+  return a;
+}
+
+function goTo(sec) {
+  for (let s = sec; s; s = s.parentElement && s.parentElement.closest("[data-fold]")) setFold(s, false);
+  sec.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+function buildToc() {
+  const list = $("tocList");
+  list.replaceChildren();
+  tocTargets = [];
+  for (const sec of document.querySelectorAll("[data-toc]")) {
+    if (!visible(sec)) continue;
+    list.append(tocLink(sec.dataset.toc, sec, () => goTo(sec)));
+    if (sec.id === "secDetail") {
+      for (const det of sec.querySelectorAll("details.check")) {
+        const pid = det.id.replace(/^pt-/, "");
+        const tag = det.querySelector("summary .tag");
+        const a = tocLink("Point " + (pointNo[pid] || ""), det, () => openPoint(pid), "sub");
+        if (tag) a.append(el("span", "st" + (tag.classList.contains("ok") ? " ok" : ""), tag.textContent));
+        list.append(a);
+      }
+    }
+  }
+  markCurrent();
+}
+
+function markCurrent() {
+  let current = null;
+  for (const t of tocTargets) {
+    if (!visible(t.target)) continue;
+    if (t.target.getBoundingClientRect().top <= 140) current = t;
+  }
+  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) {
+    // at the bottom, the last cards can never reach the top: take the last one in view
+    for (const t of tocTargets) {
+      const r = t.target.getBoundingClientRect();
+      if (visible(t.target) && r.top < window.innerHeight && r.bottom > 0) current = t;
+    }
+  }
+  if (!current && tocTargets.length) current = tocTargets[0];
+  for (const t of tocTargets) t.a.classList.toggle("on", t === current);
+}
+
+let ticking = false;
+window.addEventListener("scroll", () => {
+  if (ticking) return;
+  ticking = true;
+  requestAnimationFrame(() => { ticking = false; markCurrent(); });
+}, {passive: true});
+
+$("expandAll").addEventListener("click", () => {
+  document.querySelectorAll("[data-fold]").forEach((s) => setFold(s, false));
+  document.querySelectorAll("#points details.check").forEach((d) => { d.open = true; });
+});
+$("collapseAll").addEventListener("click", () => {
+  document.querySelectorAll("[data-fold]").forEach((s) => setFold(s, true));
+  document.querySelectorAll("#points details.check").forEach((d) => { d.open = false; });
+});
+$("tocBtn").addEventListener("click", () => {
+  const open = $("toc").classList.toggle("open");
+  $("tocBtn").setAttribute("aria-expanded", String(open));
+});
+
+document.querySelectorAll("[data-fold]").forEach(initFold);
+buildToc();
 loadObjectives();
 </script>
 </body>

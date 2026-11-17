@@ -201,3 +201,30 @@ def test_an_unknown_scenario_is_gone_not_a_crash(env):
     c = TestClient(create_app(env))
     assert c.get("/api/scenario/nope").status_code == 404
     assert c.post("/api/scenario", json={"objective_id": "not-real"}).status_code == 404
+
+
+def test_a_follow_up_answer_is_read_back_inside_the_request(env, monkeypatch):
+    monkeypatch.setattr(scenario_run, "generate", fake_generate)
+    seen = {}
+
+    def fake_follow_up(record, feedback, point_id, answer, deps):
+        seen.update(point_id=point_id, answer=answer, feedback=feedback)
+        return {"ok": True, "point_id": point_id, "did": "partly", "reply": []}
+
+    monkeypatch.setattr(scenario_run, "follow_up", fake_follow_up)
+    c = TestClient(create_app(env))
+    sid = c.post("/api/scenario", json={"objective_id": "blend-cvc-k1"}).json()["scenario_id"]
+    body = {"synthetic": True, "point_id": "P2", "answer": "I would cover the last letter."}
+    assert c.post(f"/api/scenario/{sid}/follow_up", json=body).status_code == 404  # no feedback yet
+    env.temp.put_json(sid, "feedback.json", {"points": [], "follow_ups": []})
+    assert (
+        c.post(f"/api/scenario/{sid}/follow_up", json={**body, "synthetic": False}).status_code
+        == 400
+    )
+    assert (
+        c.post(f"/api/scenario/{sid}/follow_up", json={**body, "answer": "too short"}).status_code
+        == 400
+    )
+    ok = c.post(f"/api/scenario/{sid}/follow_up", json=body)
+    assert ok.status_code == 200 and ok.json()["did"] == "partly"
+    assert seen["point_id"] == "P2" and seen["answer"] == "I would cover the last letter."
